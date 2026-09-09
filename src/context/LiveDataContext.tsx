@@ -10,7 +10,15 @@
  */
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
-import { SensorTelemetry, NodeStatus, GatewayStats, SystemEventLog } from '../types/telemetry.ts';
+import {
+  SensorTelemetry,
+  NodeStatus,
+  GatewayStats,
+  SystemEventLog,
+  HumanDetectionResult,
+  DetectionEngineStatus,
+  DetectionEventRecord,
+} from '../types/telemetry.ts';
 import { liveTelemetryService, ConnectionStatus } from '../services/telemetryService.ts';
 import { realTelemetryProcessor, RealTelemetryProcessor } from '../services/realTelemetryProcessor.ts';
 import { DerivedSensorMetrics } from '../types/signalProcessing.ts';
@@ -25,6 +33,10 @@ export interface LiveDataContextValue {
   activeTelemetry: SensorTelemetry | null;
   derivedMetricsByNode: Record<string, DerivedSensorMetrics>;
   activeDerivedMetrics: DerivedSensorMetrics | null;
+  detectionsByNode: Record<string, HumanDetectionResult>;
+  activeDetection: HumanDetectionResult | null;
+  detectionStatus: DetectionEngineStatus | null;
+  detectionHistory: DetectionEventRecord[];
   telemetryHistory: SensorTelemetry[];
   systemEvents: SystemEventLog[];
   gatewayStats: GatewayStats | null;
@@ -32,6 +44,7 @@ export interface LiveDataContextValue {
   realTelemetryProcessor: RealTelemetryProcessor;
   sendManualPacket: (packet: unknown) => Promise<{ success: boolean; message: string }>;
   refresh: () => Promise<void>;
+  refreshDetection: () => Promise<void>;
 }
 
 const LiveDataContext = createContext<LiveDataContextValue | null>(null);
@@ -43,6 +56,9 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
   const [latestTelemetryByNode, setLatestTelemetryByNode] = useState<Record<string, SensorTelemetry>>({});
   const [derivedMetricsByNode, setDerivedMetricsByNode] = useState<Record<string, DerivedSensorMetrics>>({});
+  const [detectionsByNode, setDetectionsByNode] = useState<Record<string, HumanDetectionResult>>({});
+  const [detectionStatus, setDetectionStatus] = useState<DetectionEngineStatus | null>(null);
+  const [detectionHistory, setDetectionHistory] = useState<DetectionEventRecord[]>([]);
   const [telemetryHistory, setTelemetryHistory] = useState<SensorTelemetry[]>([]);
   const [systemEvents, setSystemEvents] = useState<SystemEventLog[]>([]);
   const [gatewayStats, setGatewayStats] = useState<GatewayStats | null>(null);
@@ -58,6 +74,7 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setActiveNodeId(null);
       realTelemetryProcessor.clearAll();
       setDerivedMetricsByNode({});
+      setDetectionsByNode({});
     }
   }, [nodes, activeNodeId]);
 
@@ -114,15 +131,58 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       });
     });
 
+    const unsubDetection = liveTelemetryService.onDetection((detection) => {
+      if (!detection || !detection.nodeId) return;
+      setDetectionsByNode((prev) => ({
+        ...prev,
+        [detection.nodeId]: detection,
+      }));
+      if (detection.status === 'HUMAN_DETECTED' || detection.status === 'NO_HUMAN') {
+        setDetectionHistory((prev) => [
+          {
+            id: `det-${detection.nodeId}-${Date.now()}`,
+            nodeId: detection.nodeId,
+            timestamp: detection.inferenceTimestamp || Date.now(),
+            status: detection.status,
+            estimatedCount: detection.estimatedCount,
+            confidence: detection.confidence,
+            lifeActivity: detection.lifeActivity,
+            modelVersion: detection.modelVersion,
+            inputQuality: detection.inputQuality,
+          },
+          ...prev,
+        ].slice(0, 100));
+      }
+    });
+
+    // Fetch initial detection status
+    liveTelemetryService.fetchDetectionStatus().then((status) => {
+      if (status) setDetectionStatus(status);
+    }).catch(() => {});
+
     return () => {
       unsubConnection();
       unsubNodes();
       unsubTelemetry();
       unsubStats();
       unsubEvents();
+      unsubDetection();
       liveTelemetryService.disconnect();
     };
   }, []);
+
+  const refreshDetection = useCallback(async () => {
+    try {
+      const [status, history] = await Promise.all([
+        liveTelemetryService.fetchDetectionStatus(),
+        liveTelemetryService.fetchDetectionHistory(activeNodeId || undefined),
+      ]);
+      if (status) setDetectionStatus(status);
+      if (history) setDetectionHistory(history);
+    } catch {
+      // Ignore network errors during refresh
+    }
+  }, [activeNodeId]);
 
   const refresh = useCallback(async () => {
     try {
@@ -137,11 +197,13 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (fetchedNodes.length === 0) {
         realTelemetryProcessor.clearAll();
         setDerivedMetricsByNode({});
+        setDetectionsByNode({});
       }
+      await refreshDetection();
     } catch (err) {
       setConnectionError(err instanceof Error ? err.message : 'Error refreshing telemetry');
     }
-  }, []);
+  }, [refreshDetection]);
 
   const sendManualPacket = useCallback(async (packet: unknown) => {
     return await liveTelemetryService.sendTelemetryPacket(packet);
@@ -157,6 +219,11 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return derivedMetricsByNode[activeNodeId] || null;
   }, [activeNodeId, derivedMetricsByNode]);
 
+  const activeDetection = useMemo(() => {
+    if (!activeNodeId) return null;
+    return detectionsByNode[activeNodeId] || null;
+  }, [activeNodeId, detectionsByNode]);
+
   const value = useMemo<LiveDataContextValue>(() => ({
     connectionStatus,
     connectionError,
@@ -167,6 +234,10 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     activeTelemetry,
     derivedMetricsByNode,
     activeDerivedMetrics,
+    detectionsByNode,
+    activeDetection,
+    detectionStatus,
+    detectionHistory,
     telemetryHistory,
     systemEvents,
     gatewayStats,
@@ -174,6 +245,7 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     realTelemetryProcessor,
     sendManualPacket,
     refresh,
+    refreshDetection,
   }), [
     connectionStatus,
     connectionError,
@@ -183,12 +255,17 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     activeTelemetry,
     derivedMetricsByNode,
     activeDerivedMetrics,
+    detectionsByNode,
+    activeDetection,
+    detectionStatus,
+    detectionHistory,
     telemetryHistory,
     systemEvents,
     gatewayStats,
     lastUpdateTime,
     sendManualPacket,
     refresh,
+    refreshDetection,
   ]);
 
   return <LiveDataContext.Provider value={value}>{children}</LiveDataContext.Provider>;

@@ -131,6 +131,8 @@ export interface GatewayStats {
   systemPacketRateHz: number | null;
 }
 
+export * from './detection.ts';
+
 export interface IngestionResponse {
   accepted: boolean;
   success?: boolean;
@@ -141,11 +143,21 @@ export interface IngestionResponse {
 }
 
 export interface WebSocketMessage {
-  type: 'INIT_SNAPSHOT' | 'TELEMETRY_UPDATE' | 'NODE_STATUS_UPDATE' | 'GATEWAY_STATS' | 'ERROR' | 'telemetry' | 'node_status';
+  type:
+    | 'INIT_SNAPSHOT'
+    | 'TELEMETRY_UPDATE'
+    | 'NODE_STATUS_UPDATE'
+    | 'GATEWAY_STATS'
+    | 'ERROR'
+    | 'telemetry'
+    | 'node_status'
+    | 'DETECTION_UPDATE'
+    | 'detection';
   payload?: any;
   nodeId?: string;
   telemetry?: SensorTelemetry;
   status?: string;
   node?: NodeStatus;
   derivedMetrics?: any;
+  detection?: any;
 }

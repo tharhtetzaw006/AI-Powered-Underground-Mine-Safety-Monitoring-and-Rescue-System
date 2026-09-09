@@ -7,7 +7,17 @@
  * Connects directly to the backend telemetry ingestion layer via WebSocket and REST.
  */
 
-import { SensorTelemetry, NodeStatus, GatewayStats, WebSocketMessage, SystemEventLog } from '../types/telemetry.ts';
+import {
+  SensorTelemetry,
+  NodeStatus,
+  GatewayStats,
+  WebSocketMessage,
+  SystemEventLog,
+  HumanDetectionResult,
+  HumanDetectionInput,
+  DetectionEngineStatus,
+  DetectionEventRecord,
+} from '../types/telemetry.ts';
 
 export type ConnectionStatus = 'CONNECTING' | 'CONNECTED' | 'DISCONNECTED' | 'ERROR';
 
@@ -16,6 +26,7 @@ export type NodeStatusListener = (nodes: NodeStatus[]) => void;
 export type ConnectionListener = (status: ConnectionStatus, error?: string | null) => void;
 export type GatewayStatsListener = (stats: GatewayStats) => void;
 export type EventLogListener = (event: SystemEventLog) => void;
+export type DetectionListener = (detection: HumanDetectionResult) => void;
 
 export interface ITelemetryService {
   connect(): void;
@@ -26,10 +37,14 @@ export interface ITelemetryService {
   onConnectionChange(listener: ConnectionListener): () => void;
   onGatewayStats(listener: GatewayStatsListener): () => void;
   onEventLog(listener: EventLogListener): () => void;
+  onDetection(listener: DetectionListener): () => void;
   fetchLatestTelemetry(nodeId?: string): Promise<SensorTelemetry | null>;
   fetchAllNodes(): Promise<NodeStatus[]>;
   fetchGatewayStats(): Promise<GatewayStats | null>;
   fetchSystemEvents(): Promise<SystemEventLog[]>;
+  fetchDetectionStatus(): Promise<DetectionEngineStatus | null>;
+  fetchDetectionHistory(nodeId?: string): Promise<DetectionEventRecord[]>;
+  requestInference(input: HumanDetectionInput): Promise<HumanDetectionResult>;
   sendTelemetryPacket(packet: unknown): Promise<{ success: boolean; message: string }>;
 }
 
@@ -46,6 +61,7 @@ export class LiveWebSocketTelemetryService implements ITelemetryService {
   private connectionListeners = new Set<ConnectionListener>();
   private gatewayStatsListeners = new Set<GatewayStatsListener>();
   private eventLogListeners = new Set<EventLogListener>();
+  private detectionListeners = new Set<DetectionListener>();
 
   constructor() {
     // Hardware-independent service
@@ -199,6 +215,15 @@ export class LiveWebSocketTelemetryService implements ITelemetryService {
         }
         break;
 
+      case 'DETECTION_UPDATE':
+      case 'detection': {
+        const detObj = ((msg as any).detection || msg.payload) as HumanDetectionResult | undefined;
+        if (detObj && typeof detObj === 'object' && detObj.nodeId) {
+          this.detectionListeners.forEach((listener) => listener(detObj));
+        }
+        break;
+      }
+
       default:
         break;
     }
@@ -254,6 +279,11 @@ export class LiveWebSocketTelemetryService implements ITelemetryService {
     return () => this.eventLogListeners.delete(listener);
   }
 
+  public onDetection(listener: DetectionListener): () => void {
+    this.detectionListeners.add(listener);
+    return () => this.detectionListeners.delete(listener);
+  }
+
   public async fetchLatestTelemetry(nodeId?: string): Promise<SensorTelemetry | null> {
     const url = nodeId ? `/api/telemetry/latest?nodeId=${encodeURIComponent(nodeId)}` : '/api/telemetry/latest';
     const res = await fetch(url);
@@ -284,6 +314,37 @@ export class LiveWebSocketTelemetryService implements ITelemetryService {
     } catch {
       return [];
     }
+  }
+
+  public async fetchDetectionStatus(): Promise<DetectionEngineStatus | null> {
+    try {
+      const res = await fetch('/api/detection/status');
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  }
+
+  public async fetchDetectionHistory(nodeId?: string): Promise<DetectionEventRecord[]> {
+    try {
+      const url = nodeId ? `/api/detection/history?nodeId=${encodeURIComponent(nodeId)}` : '/api/detection/history';
+      const res = await fetch(url);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.history || [];
+    } catch {
+      return [];
+    }
+  }
+
+  public async requestInference(input: HumanDetectionInput): Promise<HumanDetectionResult> {
+    const res = await fetch('/api/detection/infer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    return await res.json();
   }
 
   public async sendTelemetryPacket(packet: unknown): Promise<{ success: boolean; message: string }> {

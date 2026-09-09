@@ -97,17 +97,17 @@ function DashboardMain() {
           {/* Section: Overview (All 8 core modules in hierarchical command view) */}
           {activeSection === 'overview' && (
             <div className="space-y-3">
-              {/* 1. System Health */}
+              {/* System Health */}
               <SystemHealthSummary id="section-system-health" />
 
-              {/* 2. Live Detection Summary */}
+              {/* Live Detection Summary */}
               <DetectionSummary id="section-detection" />
 
-              {/* 3. Sensor Telemetry Grid */}
+              {/* Sensor Telemetry Grid */}
               <div className="space-y-2">
                 <SectionHeader
                   icon={Activity}
-                  title="3. Live Sensor Telemetry"
+                  title="Live Sensor Telemetry"
                   subtitle={
                     activeNodeId
                       ? `REAL MEASUREMENTS FOR NODE [${activeNodeId}]`
@@ -117,21 +117,21 @@ function DashboardMain() {
                 <SensorTelemetryGrid id="section-sensors" />
               </div>
 
-              {/* 4. Live Signal Charts */}
+              {/* Live Signal Charts */}
               <div className="space-y-2">
                 <SectionHeader
                   icon={LineChart}
-                  title="4. Live Signal Telemetry Plotter"
+                  title="Live Signal Telemetry Plotter"
                   subtitle="REAL HARDWARE TELEMETRY SAMPLES BUFFER"
                 />
                 <LiveSignalChart id="section-charts" />
               </div>
 
-              {/* 5. Node Monitoring */}
+              {/* Node Monitoring */}
               <div className="space-y-2">
                 <SectionHeader
                   icon={Radio}
-                  title="5. Field Node Fleet Registry"
+                  title="Field Node Fleet Registry"
                   subtitle="RF LINK, POWER RESERVES, AND SENSOR STATUS"
                   badge={
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#0D0D0D] text-[#38BDF8] border border-[#222222]">
@@ -142,11 +142,11 @@ function DashboardMain() {
                 <NodeStatusTable id="section-nodes" />
               </div>
 
-              {/* 6. Alerts */}
+              {/* Alerts */}
               <div className="space-y-2">
                 <SectionHeader
                   icon={ShieldAlert}
-                  title="6. Operational Alerts & Faults"
+                  title="Operational Alerts & Faults"
                   subtitle="DETERMINISTIC THRESHOLD & LINK MONITORING"
                   badge={
                     activeAlertCount > 0 ? (
@@ -159,7 +159,7 @@ function DashboardMain() {
                 <AlertList id="section-alerts" />
               </div>
 
-              {/* 7 & 8. Optical Surveillance (Camera) & Spatial Environment */}
+              {/* Optical Surveillance (Camera) & Spatial Environment */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 <CameraSection id="section-camera" />
                 <SpatialView id="section-spatial" />

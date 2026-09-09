@@ -24,7 +24,11 @@ import {
   SensorAvailability,
   SensorFreshnessMap,
   SystemEventLog,
+  HumanDetectionResult,
+  HumanDetectionInput,
 } from './src/types/telemetry.ts';
+import { realSensorFeatureExtractor } from './src/services/realSensorFeatureExtractor.ts';
+import { productionDetectionEngine } from './src/services/detectionEngine.ts';
 
 const PORT = 3000;
 const HOST = '0.0.0.0';
@@ -66,6 +70,7 @@ interface InternalNodeRecord {
   recentPacketTimes: number[];
   telemetryWindow: SensorTelemetry[];
   derivedMetrics: InternalNodeDerivedMetrics;
+  latestDetection: HumanDetectionResult | null;
 }
 
 let eventCounter = 0;
@@ -390,9 +395,13 @@ async function startServer() {
 
     // Prepare initial snapshot
     const latestMap: Record<string, SensorTelemetry> = {};
+    const detectionsMap: Record<string, HumanDetectionResult> = {};
     for (const [id, rec] of nodeRegistry.entries()) {
       if (rec.latestTelemetry) {
         latestMap[id] = rec.latestTelemetry;
+      }
+      if (rec.latestDetection) {
+        detectionsMap[id] = rec.latestDetection;
       }
     }
 
@@ -401,6 +410,8 @@ async function startServer() {
       payload: {
         nodes: getAllNodeStatuses(),
         latestTelemetry: latestMap,
+        detections: detectionsMap,
+        detectionStatus: productionDetectionEngine.getStatus(),
         gatewayStats: getGatewayStats(),
         events: systemEventsBuffer,
       },
@@ -516,6 +527,7 @@ async function startServer() {
           sensorQuality: null,
           activityState: 'NO DATA',
         },
+        latestDetection: null,
       };
       nodeRegistry.set(nodeId, nodeRecord);
       recordSystemEvent('NODE_REGISTERED', nodeId, `Node "${nodeId}" registered from real hardware telemetry packet`);
@@ -816,6 +828,45 @@ async function startServer() {
       payload: getAllNodeStatuses(),
     });
 
+    // Extract real sensor features and evaluate human/life detection pipeline
+    try {
+      const { detectionInput } = realSensorFeatureExtractor.extractFeatures(telemetry);
+      productionDetectionEngine.infer(detectionInput).then((detectionResult) => {
+        const prevDetection = nodeRecord.latestDetection;
+        const stateChanged =
+          !prevDetection ||
+          prevDetection.status !== detectionResult.status ||
+          prevDetection.estimatedCount !== detectionResult.estimatedCount ||
+          prevDetection.confidence !== detectionResult.confidence ||
+          prevDetection.lifeActivity !== detectionResult.lifeActivity;
+
+        nodeRecord.latestDetection = detectionResult;
+
+        const isGenuineInference =
+          detectionResult.status === 'HUMAN_DETECTED' || detectionResult.status === 'NO_HUMAN';
+
+        // WebSocket DETECTION_UPDATE emitted only from genuine detection state changes or genuine inference results
+        if (stateChanged || isGenuineInference) {
+          broadcast({
+            type: 'DETECTION_UPDATE',
+            nodeId,
+            payload: detectionResult,
+            detection: detectionResult,
+          });
+          broadcast({
+            type: 'detection',
+            nodeId,
+            payload: detectionResult,
+            detection: detectionResult,
+          });
+        }
+      }).catch((err) => {
+        console.error('Detection inference evaluation error:', err);
+      });
+    } catch (extractErr) {
+      console.error('Feature extraction error:', extractErr);
+    }
+
     return {
       accepted: true,
       success: true,
@@ -1037,17 +1088,118 @@ async function startServer() {
     telemetryHistoryBuffer.length = 0;
     systemEventsBuffer.length = 0;
     mostRecentNodeId = null;
+    realSensorFeatureExtractor.clearAll();
+    productionDetectionEngine.clearAll();
     recordSystemEvent('NODE_REGISTERED', undefined, 'Node registry cleared for field calibration');
     broadcast({
       type: 'INIT_SNAPSHOT',
       payload: {
         nodes: [],
         latestTelemetry: {},
+        detections: {},
+        detectionStatus: productionDetectionEngine.getStatus(),
         gatewayStats: getGatewayStats(),
         events: systemEventsBuffer,
       },
     });
     res.json({ success: true, message: 'Node registry cleared.' });
+  });
+
+  // ---------------- HUMAN / LIFE DETECTION AI PIPELINE APIS ----------------
+  
+  // POST /api/detection/infer: Validate input and run configured DetectionEngine
+  app.post('/api/detection/infer', async (req, res) => {
+    const body = req.body;
+    if (!body || typeof body !== 'object') {
+      res.status(400).json({
+        error: 'Malformed or incomplete inference input: body must be an object',
+        status: 'ERROR',
+      });
+      return;
+    }
+
+    const { nodeId, timestamp, source, features } = body;
+    const errors: string[] = [];
+
+    if (!nodeId || typeof nodeId !== 'string' || !nodeId.trim()) {
+      errors.push('nodeId is required and must be a non-empty string');
+    }
+    if (timestamp === undefined || timestamp === null || typeof timestamp !== 'number' || !Number.isFinite(timestamp)) {
+      errors.push('timestamp is required and must be a valid epoch number');
+    }
+    const VALID_SOURCES = ['RF', 'RADAR', 'CAMERA', 'SENSOR_FUSION', 'UNKNOWN'];
+    if (!source || typeof source !== 'string' || !VALID_SOURCES.includes(source)) {
+      errors.push('source is required and must be one of: RF, RADAR, CAMERA, SENSOR_FUSION, UNKNOWN');
+    }
+    if (!features || typeof features !== 'object') {
+      errors.push('features is required and must be a RealSensorFeatures object');
+    } else {
+      if (typeof features.rawSampleCount !== 'number' || features.rawSampleCount < 0) {
+        errors.push('features.rawSampleCount is required and must be a non-negative number');
+      }
+    }
+
+    if (errors.length > 0) {
+      res.status(400).json({
+        error: 'Malformed or incomplete inference input',
+        details: errors,
+        status: 'ERROR',
+      });
+      return;
+    }
+
+    try {
+      const input: HumanDetectionInput = {
+        nodeId: nodeId.trim(),
+        timestamp,
+        source: source as HumanDetectionInput['source'],
+        features,
+        sequence: typeof body.sequence === 'number' ? body.sequence : null,
+        quality: typeof body.quality === 'number' ? body.quality : null,
+      };
+
+      const result = await productionDetectionEngine.infer(input);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({
+        error: 'Inference engine execution failure',
+        message: err instanceof Error ? err.message : 'Unknown error',
+        status: 'ERROR',
+      });
+    }
+  });
+
+  // GET /api/detection/status: Current engine availability, model availability, limitations
+  app.get('/api/detection/status', (_req, res) => {
+    res.json(productionDetectionEngine.getStatus());
+  });
+
+  // GET /api/detection/history: Real detection event records (only genuine model inferences)
+  app.get('/api/detection/history', (req, res) => {
+    const queryNodeId = req.query.nodeId as string | undefined;
+    const history = productionDetectionEngine.getDetectionHistory(queryNodeId);
+    res.json({
+      history,
+      count: history.length,
+    });
+  });
+
+  // GET /api/detection/latest: Latest detection for active or queried node
+  app.get('/api/detection/latest', (req, res) => {
+    const queryNodeId = (req.query.nodeId as string | undefined) || mostRecentNodeId;
+    if (!queryNodeId) {
+      res.json({
+        detection: null,
+        status: 'NO_DATA',
+        message: 'No nodes registered',
+      });
+      return;
+    }
+    const state = productionDetectionEngine.getNodeState(queryNodeId);
+    res.json({
+      nodeId: queryNodeId,
+      detection: state?.lastResult ?? null,
+    });
   });
 
   // ---------------- VITE & STATIC SERVING ----------------
