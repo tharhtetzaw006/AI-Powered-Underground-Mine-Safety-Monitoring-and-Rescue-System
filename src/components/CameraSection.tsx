@@ -37,7 +37,7 @@ export const CameraSection: React.FC<CameraSectionProps> = ({ id }) => {
         </div>
 
         <div className="flex items-center gap-2">
-          <StatusBadge status="OFFLINE" label="CAMERA OFFLINE" size="xs" />
+          <StatusBadge status="NO DATA" label="NO SIGNAL" size="xs" />
           <button
             type="button"
             onClick={handleCheckStream}
@@ -45,7 +45,7 @@ export const CameraSection: React.FC<CameraSectionProps> = ({ id }) => {
             className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#0D0D0D] border border-[#222222] text-[10px] text-[#B3B3B3] hover:text-[#FFFFFF] disabled:opacity-50"
           >
             <RefreshCw className={`w-3 h-3 ${isChecking ? 'animate-spin' : ''}`} />
-            <span>{isChecking ? 'POLLING...' : 'PROBE FEED'}</span>
+            <span>{isChecking ? 'PROBING...' : 'PROBE FEED'}</span>
           </button>
         </div>
       </div>
@@ -65,10 +65,10 @@ export const CameraSection: React.FC<CameraSectionProps> = ({ id }) => {
             <VideoOff className="w-6 h-6 text-[#EF4444]" />
           </div>
           <div className="text-sm font-bold tracking-wider text-[#FFFFFF] uppercase">
-            CAMERA OFFLINE
+            CAMERA STATE: NO SIGNAL
           </div>
           <p className="text-xs text-[#B3B3B3] mt-1.5 max-w-sm">
-            No MJPEG or RTSP video stream detected on node optical bus. ESP32-CAM module is inactive or bandwidth-throttled.
+            No active MJPEG / RTSP optical stream received from ESP32-CAM.
           </p>
 
           <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-[10px] text-[#8A8A8A]">

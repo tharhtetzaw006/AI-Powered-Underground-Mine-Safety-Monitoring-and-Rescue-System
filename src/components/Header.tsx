@@ -12,25 +12,35 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleGatewayInfo,
   showGatewayInfo,
 }) => {
-  const { connectionStatus, connectionError, lastUpdateTime, nodes } = useLiveData();
+  const { connectionStatus, connectionError, lastUpdateTime, nodes, gatewayStats } = useLiveData();
 
   const onlineNodes = nodes.filter((n) => n.status === 'ONLINE');
 
-  // Derive overall system status
-  let systemStatus: 'ONLINE' | 'DEGRADED' | 'OFFLINE' | 'ERROR' | 'NO DATA' = 'NO DATA';
-  if (connectionStatus === 'ERROR') {
-    systemStatus = 'ERROR';
-  } else if (connectionStatus === 'DISCONNECTED') {
-    systemStatus = 'OFFLINE';
-  } else if (nodes.length === 0) {
-    systemStatus = 'NO DATA';
-  } else if (onlineNodes.length === nodes.length) {
-    systemStatus = 'ONLINE';
-  } else if (onlineNodes.length > 0) {
-    systemStatus = 'DEGRADED';
-  } else {
-    systemStatus = 'OFFLINE';
-  }
+  // A. Backend Server Status
+  const backendStatus: 'ONLINE' | 'OFFLINE' | 'CONNECTING' =
+    connectionStatus === 'CONNECTED'
+      ? 'ONLINE'
+      : connectionStatus === 'CONNECTING'
+      ? 'CONNECTING'
+      : 'OFFLINE';
+
+  // B. Gateway Wi-Fi/LAN connection (actual ESP32 gateway ingestion)
+  const isGatewayConnected = !!(
+    gatewayStats &&
+    gatewayStats.lastIngestionTime &&
+    Date.now() - gatewayStats.lastIngestionTime < 30000
+  );
+  const gatewayStatus: 'CONNECTED' | 'DISCONNECTED' = isGatewayConnected
+    ? 'CONNECTED'
+    : 'DISCONNECTED';
+
+  // C. LoRa link state
+  const isLoraReceiving = !!(
+    lastUpdateTime &&
+    Date.now() - lastUpdateTime < 15000 &&
+    (gatewayStats?.totalPacketsAccepted ?? 0) > 0
+  );
+  const loraStatus: 'RECEIVING' | 'NO PACKETS' = isLoraReceiving ? 'RECEIVING' : 'NO PACKETS';
 
   const formatTimestamp = (ts: number | null) => {
     if (!ts) return 'NO DATA';
@@ -59,47 +69,40 @@ export const Header: React.FC<HeaderProps> = ({
                 MINE-RESCUE OPERATIONS MONITOR
               </h1>
               <span className="text-[10px] uppercase px-1.5 py-0.2 rounded bg-[#0D0D0D] text-[#B3B3B3] border border-[#222222]">
-                INGESTION V1.2
+                HARDWARE V1.0
               </span>
             </div>
             <p className="text-[10px] sm:text-[11px] text-[#8A8A8A]">
-              REAL HARDWARE TELEMETRY RIG &bull; LORA / ESP32 RF LINK
+              REAL HARDWARE TELEMETRY RIG &bull; ESP32 + RA-02 SX1278 LORA
             </p>
           </div>
         </div>
 
         {/* System & Connection Status Metrics */}
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          {/* Overall System Status */}
+          {/* Backend Status */}
           <div className="flex items-center gap-1.5 bg-[#0D0D0D] px-2.5 py-1 rounded border border-[#222222]">
-            <span className="text-[#8A8A8A] text-[10px] sm:text-[11px] uppercase">SYSTEM:</span>
-            <StatusBadge status={systemStatus} size="xs" pulse={systemStatus === 'ONLINE'} />
+            <span className="text-[#8A8A8A] text-[10px] sm:text-[11px] uppercase">BACKEND:</span>
+            <StatusBadge status={backendStatus} size="xs" pulse={backendStatus === 'ONLINE'} />
           </div>
 
           {/* Gateway Status */}
           <div className="flex items-center gap-1.5 bg-[#0D0D0D] px-2.5 py-1 rounded border border-[#222222]">
             <span className="text-[#8A8A8A] text-[10px] sm:text-[11px] uppercase">GATEWAY:</span>
             <StatusBadge
-              status={
-                connectionStatus === 'CONNECTED'
-                  ? 'ONLINE'
-                  : connectionStatus === 'CONNECTING'
-                  ? 'STALE'
-                  : connectionStatus === 'DISCONNECTED'
-                  ? 'OFFLINE'
-                  : 'ERROR'
-              }
-              label={
-                connectionStatus === 'CONNECTED'
-                  ? 'CONNECTED'
-                  : connectionStatus === 'CONNECTING'
-                  ? 'CONNECTING'
-                  : connectionStatus === 'DISCONNECTED'
-                  ? 'OFFLINE'
-                  : 'ERROR'
-              }
+              status={gatewayStatus}
               size="xs"
-              pulse={connectionStatus === 'CONNECTED'}
+              pulse={gatewayStatus === 'CONNECTED'}
+            />
+          </div>
+
+          {/* LoRa Status */}
+          <div className="flex items-center gap-1.5 bg-[#0D0D0D] px-2.5 py-1 rounded border border-[#222222]">
+            <span className="text-[#8A8A8A] text-[10px] sm:text-[11px] uppercase">LORA:</span>
+            <StatusBadge
+              status={loraStatus}
+              size="xs"
+              pulse={loraStatus === 'RECEIVING'}
             />
           </div>
 

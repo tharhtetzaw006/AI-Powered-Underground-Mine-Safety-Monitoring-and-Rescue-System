@@ -131,17 +131,21 @@ export function validateTelemetryPacket(raw: unknown): ValidationResult {
   }
   const nodeId = typeof data.nodeId === 'string' ? data.nodeId.trim() : '';
 
-  // 2. Validate timestamp (optional hardware timestamp)
+  // 2. Validate timestamp (optional hardware timestamp, supporting deviceTimestamp alias)
   let timestamp: number | string | null = null;
-  if (data.timestamp !== undefined && data.timestamp !== null) {
-    if (typeof data.timestamp === 'number') {
-      if (!Number.isFinite(data.timestamp) || data.timestamp <= 0) {
+  const rawTimestamp = data.timestamp !== undefined && data.timestamp !== null
+    ? data.timestamp
+    : (data.deviceTimestamp !== undefined && data.deviceTimestamp !== null ? data.deviceTimestamp : null);
+
+  if (rawTimestamp !== null) {
+    if (typeof rawTimestamp === 'number') {
+      if (!Number.isFinite(rawTimestamp) || rawTimestamp <= 0) {
         errors.push('"timestamp" if numeric must be a positive finite number representing hardware epoch or uptime.');
       } else {
-        timestamp = data.timestamp;
+        timestamp = rawTimestamp;
       }
-    } else if (typeof data.timestamp === 'string') {
-      const trimmed = data.timestamp.trim();
+    } else if (typeof rawTimestamp === 'string') {
+      const trimmed = rawTimestamp.trim();
       if (trimmed.length > 0) {
         timestamp = trimmed;
       }
@@ -158,17 +162,34 @@ export function validateTelemetryPacket(raw: unknown): ValidationResult {
   const gyroRes = parseVector3D(data.gyroscope, 'gyroscope');
   if (gyroRes.error) errors.push(gyroRes.error);
 
-  // 5. Distance [m] (range: 0 to 500 meters for typical LiDAR/ultrasonic mine sensors)
-  const distRes = parseOptionalNumber(data.distance, 'distance', 0, 1000);
-  if (distRes.error) errors.push(distRes.error);
+  // 5. Distance [m] (range: 0 to 500 meters; negative values such as -1 denote HC-SR04 timeout / error)
+  let distRes: { value: number | null; error?: string };
+  if (data.distance === null || data.distance === undefined || (typeof data.distance === 'number' && data.distance < 0)) {
+    distRes = { value: null };
+  } else {
+    distRes = parseOptionalNumber(data.distance, 'distance', 0, 1000);
+    if (distRes.error) errors.push(distRes.error);
+  }
 
-  // 6. Sound Level [dB] (range: 0 to 160 dB SPL)
-  const soundRes = parseOptionalNumber(data.soundLevel, 'soundLevel', 0, 200);
-  if (soundRes.error) errors.push(soundRes.error);
+  // 6. Sound Level / Acoustic [dB or raw amplitude] (supports soundLevel and acoustic; negative values denote error)
+  const rawSound = data.soundLevel !== undefined && data.soundLevel !== null
+    ? data.soundLevel
+    : (data.acoustic !== undefined && data.acoustic !== null ? data.acoustic : null);
+  let soundRes: { value: number | null; error?: string };
+  if (rawSound === null || rawSound === undefined || (typeof rawSound === 'number' && rawSound < 0)) {
+    soundRes = { value: null };
+  } else {
+    soundRes = parseOptionalNumber(rawSound, 'soundLevel / acoustic', 0, 200);
+    if (soundRes.error) errors.push(soundRes.error);
+  }
 
-  // 7. RSSI [dBm] (range: -150 to 20 dBm)
+  // 7. RSSI [dBm] (range: -160 to 30 dBm)
   const rssiRes = parseOptionalNumber(data.rssi, 'rssi', -160, 30);
   if (rssiRes.error) errors.push(rssiRes.error);
+
+  // 7b. SNR [dB] (range: -35 to 35 dB for SX1278 LoRa)
+  const snrRes = parseOptionalNumber(data.snr, 'snr', -35, 35);
+  if (snrRes.error) errors.push(snrRes.error);
 
   // 8. Packet Loss [%] (range: 0 to 100%)
   const lossRes = parseOptionalNumber(data.packetLoss, 'packetLoss', 0, 100);
@@ -188,6 +209,18 @@ export function validateTelemetryPacket(raw: unknown): ValidationResult {
     }
   }
 
+  // 11. Optional payload size in bytes
+  let payloadSize: number | null = null;
+  if (typeof data.payloadSize === 'number' && Number.isFinite(data.payloadSize) && data.payloadSize >= 0) {
+    payloadSize = data.payloadSize;
+  } else {
+    try {
+      payloadSize = new TextEncoder().encode(JSON.stringify(raw)).length;
+    } catch {
+      payloadSize = null;
+    }
+  }
+
   if (errors.length > 0) {
     return {
       isValid: false,
@@ -201,15 +234,19 @@ export function validateTelemetryPacket(raw: unknown): ValidationResult {
   const telemetry: SensorTelemetry = {
     nodeId,
     timestamp,
+    deviceTimestamp: timestamp,
     serverReceiveTime,
     acceleration: accRes.vector,
     gyroscope: gyroRes.vector,
     distance: distRes.value,
     soundLevel: soundRes.value,
+    acoustic: soundRes.value,
     rssi: rssiRes.value,
+    snr: snrRes.value,
     packetLoss: lossRes.value,
     battery: battRes.value,
     sequenceNumber,
+    payloadSize,
   };
 
   return {

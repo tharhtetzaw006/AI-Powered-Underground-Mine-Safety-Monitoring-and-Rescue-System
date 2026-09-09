@@ -81,7 +81,7 @@ export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
 
         <StatusBadge
           status={hasAnyDetection ? 'ACTIVE' : 'NO DATA'}
-          label={hasAnyDetection ? 'TARGET CLASSIFIED' : 'NO DETECTION DATA'}
+          label={hasAnyDetection ? 'TARGET CLASSIFIED' : 'INACTIVE / NO MODEL'}
           size="xs"
         />
       </div>
@@ -97,10 +97,10 @@ export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
             {subjectCount !== null ? (
               <span className="text-[#22C55E]">{subjectCount}</span>
             ) : (
-              <span className="text-[#8A8A8A] text-sm">NO DATA</span>
+              <span className="text-[#8A8A8A] text-sm font-normal">--</span>
             )}
           </div>
-          <div className="text-[9px] text-[#8A8A8A] mt-0.5">ACOUSTIC/IMU INFERENCE</div>
+          <div className="text-[9px] text-[#8A8A8A] mt-0.5">VALIDATED COUNT</div>
         </div>
 
         {/* Activity State */}
@@ -113,10 +113,10 @@ export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
             {activityState !== null ? (
               <span className="text-[#38BDF8]">{activityState}</span>
             ) : (
-              <span className="text-[#8A8A8A] text-sm">NO DATA</span>
+              <span className="text-[#8A8A8A] text-sm font-normal">NO MODEL</span>
             )}
           </div>
-          <div className="text-[9px] text-[#8A8A8A] mt-0.5">MOTION PROFILE</div>
+          <div className="text-[9px] text-[#8A8A8A] mt-0.5">CLASSIFIER INFERENCE</div>
         </div>
 
         {/* Confidence */}
@@ -129,10 +129,10 @@ export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
             {confidence !== null ? (
               <span className="text-[#22C55E]">{confidence}</span>
             ) : (
-              <span className="text-[#8A8A8A] text-sm">NO DATA</span>
+              <span className="text-[#8A8A8A] text-sm font-normal">N/A</span>
             )}
           </div>
-          <div className="text-[9px] text-[#8A8A8A] mt-0.5">MODEL PROBABILITY</div>
+          <div className="text-[9px] text-[#8A8A8A] mt-0.5">UNVALIDATED MODEL = N/A</div>
         </div>
 
         {/* Detection Zone */}

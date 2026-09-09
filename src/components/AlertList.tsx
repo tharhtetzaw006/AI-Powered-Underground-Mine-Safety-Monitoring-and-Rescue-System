@@ -106,10 +106,34 @@ export const AlertList: React.FC<AlertListProps> = ({ id }) => {
           status: acknowledgedIds.has(alertId) ? 'ACKNOWLEDGED' : 'ACTIVE',
         });
       }
+
+      if (node.rssi !== null && node.rssi < -115) {
+        const alertId = `node-rf-weak-${node.nodeId}`;
+        list.push({
+          id: alertId,
+          severity: 'WARNING',
+          time: node.lastSeen || Date.now(),
+          nodeId: node.nodeId,
+          event: `Weak LoRa RF link (${node.rssi} dBm${node.snr !== null && node.snr !== undefined ? `, SNR: ${node.snr} dB` : ''})`,
+          status: acknowledgedIds.has(alertId) ? 'ACKNOWLEDGED' : 'ACTIVE',
+        });
+      }
     });
 
     // Sensor threshold conditions on active telemetry & derived features
     if (activeTelemetry) {
+      const accelMag = activeDerivedMetrics?.accelerationMagnitude ?? null;
+      if (accelMag !== null && (accelMag > 25.0 || accelMag < 1.0)) {
+        const alertId = `sens-accel-${activeTelemetry.nodeId}`;
+        list.push({
+          id: alertId,
+          severity: 'WARNING',
+          time: activeTelemetry.serverReceiveTime,
+          nodeId: activeTelemetry.nodeId,
+          event: `Abnormal measured acceleration (${accelMag.toFixed(2)} m/s²)`,
+          status: acknowledgedIds.has(alertId) ? 'ACKNOWLEDGED' : 'ACTIVE',
+        });
+      }
       if (
         activeTelemetry.distance !== null &&
         activeTelemetry.distance < SIGNAL_CONFIG.DISTANCE.CRITICAL_M

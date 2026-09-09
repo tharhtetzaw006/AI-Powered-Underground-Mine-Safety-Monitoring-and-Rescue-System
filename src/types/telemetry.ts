@@ -15,15 +15,19 @@ export interface Vector3D {
 export interface SensorTelemetry {
   nodeId: string;
   timestamp: number | string | null;        // Hardware timestamp (device millis epoch, ISO string, or relative uptime)
+  deviceTimestamp?: number | string | null;  // Alias for hardware timestamp
   serverReceiveTime: number;               // Server timestamp (epoch millis when packet received)
   acceleration: Vector3D | null;           // Acceleration [x, y, z] in m/s²
   gyroscope: Vector3D | null;              // Gyroscope [x, y, z] in °/s
   distance: number | null;                 // Obstacle / proximity distance in meters
-  soundLevel: number | null;               // Acoustic sound pressure level in dB
+  soundLevel: number | null;               // Acoustic sound pressure level in dB / raw amplitude
+  acoustic?: number | null;                // Alias for soundLevel
   rssi: number | null;                     // RF signal strength in dBm
+  snr?: number | null;                      // RF Signal-to-Noise Ratio in dB
   packetLoss: number | null;               // Packet loss percentage (0 - 100%)
   battery: number | null;                  // Battery charge percentage (0 - 100%)
   sequenceNumber?: number | null;          // Hardware packet sequence counter
+  payloadSize?: number | null;             // Ingested payload byte size if available
 }
 
 export type NodeConnectionState = 'ONLINE' | 'STALE' | 'OFFLINE';
@@ -103,6 +107,8 @@ export interface NodeStatus {
   packetRateHz: number | null;
   dataQualityScore: number | null;
   rssi: number | null;
+  snr?: number | null;
+  sequenceNumber?: number | null;
   battery: number | null;
   packetLoss: number | null;
   sensorHealth: SensorHealthStatus;
@@ -135,6 +141,11 @@ export interface IngestionResponse {
 }
 
 export interface WebSocketMessage {
-  type: 'INIT_SNAPSHOT' | 'TELEMETRY_UPDATE' | 'NODE_STATUS_UPDATE' | 'GATEWAY_STATS' | 'ERROR';
-  payload: any;
+  type: 'INIT_SNAPSHOT' | 'TELEMETRY_UPDATE' | 'NODE_STATUS_UPDATE' | 'GATEWAY_STATS' | 'ERROR' | 'telemetry' | 'node_status';
+  payload?: any;
+  nodeId?: string;
+  telemetry?: SensorTelemetry;
+  status?: string;
+  node?: NodeStatus;
+  derivedMetrics?: any;
 }

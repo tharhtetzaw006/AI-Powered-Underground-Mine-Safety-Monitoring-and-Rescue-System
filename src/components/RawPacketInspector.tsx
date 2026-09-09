@@ -144,17 +144,22 @@ export const RawPacketInspector: React.FC = () => {
 
       {/* Packet List */}
       {packetsToDisplay.length === 0 ? (
-        <div className="text-center py-6 text-xs text-[#8A8A8A] border border-dashed border-[#222222] rounded bg-[#000000]">
-          NO PACKETS RECEIVED
+        <div className="text-center py-8 text-xs font-mono text-[#8A8A8A] border border-dashed border-[#222222] rounded bg-[#000000] flex flex-col items-center justify-center gap-2">
+          <Terminal className="w-5 h-5 text-[#8A8A8A]" />
+          <span className="font-bold text-[#FFFFFF] tracking-wider">NO REAL PACKETS RECEIVED</span>
+          <span className="text-[11px] text-[#8A8A8A]">Awaiting hardware telemetry transmission from ESP32 gateway over Wi-Fi/LAN</span>
         </div>
       ) : (
-        <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
+        <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
           {packetsToDisplay.map((packet, idx) => {
             const isExpanded = expandedIndex === idx;
             const jsonString = JSON.stringify(packet, null, 2);
             const fieldsReceived = getReceivedFields(packet);
             const latencyStr = calculatePacketLatency(packet);
             const ageSeconds = ((Date.now() - packet.serverReceiveTime) / 1000).toFixed(1);
+            const payloadBytes =
+              packet.payloadSize ??
+              new TextEncoder().encode(JSON.stringify(packet)).length;
 
             return (
               <div
@@ -163,7 +168,7 @@ export const RawPacketInspector: React.FC = () => {
               >
                 <div
                   onClick={() => setExpandedIndex(isExpanded ? null : idx)}
-                  className="px-2.5 py-1.5 flex flex-wrap items-center justify-between gap-2 cursor-pointer hover:bg-[#0D0D0D] transition-colors"
+                  className="px-3 py-2 flex flex-wrap items-center justify-between gap-2 cursor-pointer hover:bg-[#0D0D0D] transition-colors"
                 >
                   <div className="flex items-center gap-2 flex-wrap">
                     {isExpanded ? (
@@ -172,10 +177,10 @@ export const RawPacketInspector: React.FC = () => {
                       <ChevronRight className="w-3.5 h-3.5 text-[#8A8A8A]" />
                     )}
                     <span className="text-[#38BDF8] font-bold">[{packet.nodeId}]</span>
-                    <span className="text-[#8A8A8A]">
+                    <span className="text-[#FFFFFF] font-semibold">
                       {packet.sequenceNumber !== null && packet.sequenceNumber !== undefined
-                        ? `#${packet.sequenceNumber}`
-                        : '#--'}
+                        ? `SEQ #${packet.sequenceNumber}`
+                        : 'SEQ #--'}
                     </span>
                     <span className="text-[#8A8A8A] text-[11px]">
                       RX: {formatTimestamp(packet.serverReceiveTime)}
@@ -183,14 +188,17 @@ export const RawPacketInspector: React.FC = () => {
                     <span className="text-[#8A8A8A] text-[10px]">
                       ({ageSeconds}s ago)
                     </span>
-                    {latencyStr !== '--' && (
-                      <span className="text-[#B3B3B3] text-[10px] bg-[#111111] px-1 rounded border border-[#222222]">
-                        LATENCY: {latencyStr}
+                    {packet.rssi !== null && packet.rssi !== undefined && (
+                      <span className="text-[#38BDF8] text-[10px] bg-[#0d2230] px-1.5 py-0.5 rounded border border-[#184e70]">
+                        RSSI: {packet.rssi} dBm
                       </span>
                     )}
+                    <span className="text-[#B3B3B3] text-[10px] bg-[#111111] px-1.5 py-0.5 rounded border border-[#222222]">
+                      {payloadBytes} B
+                    </span>
                   </div>
 
-                  <div className="flex items-center gap-1.5 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
                     {/* Received fields badges */}
                     <div className="flex items-center gap-1">
                       {fieldsReceived.map((f) => (
@@ -203,9 +211,9 @@ export const RawPacketInspector: React.FC = () => {
                       ))}
                     </div>
 
-                    <span className="inline-flex items-center gap-1 text-[10px] text-[#22C55E] bg-[#071a0e] px-1.5 py-0.5 rounded border border-[#1b4d29]">
+                    <span className="inline-flex items-center gap-1 text-[10px] text-[#22C55E] bg-[#071a0e] px-2 py-0.5 rounded border border-[#1b4d29] font-bold">
                       <CheckCircle2 className="w-3 h-3" />
-                      ACCEPTED
+                      VALID / ACCEPTED
                     </span>
 
                     <button
@@ -214,43 +222,116 @@ export const RawPacketInspector: React.FC = () => {
                         e.stopPropagation();
                         handleCopy(jsonString, `${idx}`);
                       }}
-                      className="p-1 hover:bg-[#0D0D0D] rounded text-[#B3B3B3] hover:text-[#FFFFFF]"
+                      className="p-1 hover:bg-[#1a1a1a] rounded text-[#B3B3B3] hover:text-[#FFFFFF] transition-colors"
                       title="Copy JSON Payload"
                     >
                       {copiedId === `${idx}` ? (
-                        <Check className="w-3 h-3 text-[#22C55E]" />
+                        <Check className="w-3.5 h-3.5 text-[#22C55E]" />
                       ) : (
-                        <Copy className="w-3 h-3" />
+                        <Copy className="w-3.5 h-3.5" />
                       )}
                     </button>
                   </div>
                 </div>
 
                 {isExpanded && (
-                  <div className="p-2.5 border-t border-[#222222] bg-[#050505]">
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2 pb-2 border-b border-[#1b1b1b] text-[11px]">
+                  <div className="p-3 border-t border-[#222222] bg-[#050505] space-y-3">
+                    {/* Parsed Telemetry Values Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-[11px] bg-[#000000] p-2.5 rounded border border-[#1f1f1f]">
                       <div>
-                        <span className="text-[#8A8A8A]">NODE ID: </span>
-                        <span className="text-[#FFFFFF]">{packet.nodeId}</span>
+                        <span className="text-[#8A8A8A] block text-[9px]">NODE ID</span>
+                        <span className="text-[#FFFFFF] font-bold">{packet.nodeId}</span>
                       </div>
                       <div>
-                        <span className="text-[#8A8A8A]">HW TIMESTAMP: </span>
-                        <span className="text-[#FFFFFF]">
-                          {packet.timestamp !== null ? `${packet.timestamp}` : '--'}
+                        <span className="text-[#8A8A8A] block text-[9px]">SEQUENCE</span>
+                        <span className="text-[#FFFFFF] font-bold">
+                          {packet.sequenceNumber !== null && packet.sequenceNumber !== undefined ? `#${packet.sequenceNumber}` : '--'}
                         </span>
                       </div>
                       <div>
-                        <span className="text-[#8A8A8A]">RX TIMESTAMP: </span>
-                        <span className="text-[#FFFFFF]">{packet.serverReceiveTime}</span>
+                        <span className="text-[#8A8A8A] block text-[9px]">RECEIVE TIME</span>
+                        <span className="text-[#FFFFFF]">{formatTimestamp(packet.serverReceiveTime)}</span>
                       </div>
                       <div>
-                        <span className="text-[#8A8A8A]">STATUS: </span>
-                        <span className="text-[#22C55E]">VALID / ACCEPTED</span>
+                        <span className="text-[#8A8A8A] block text-[9px]">LORA RSSI</span>
+                        <span className={packet.rssi !== null ? 'text-[#38BDF8] font-bold' : 'text-[#8A8A8A]'}>
+                          {packet.rssi !== null ? `${packet.rssi} dBm` : '--'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[#8A8A8A] block text-[9px]">PAYLOAD SIZE</span>
+                        <span className="text-[#FFFFFF] font-bold">{payloadBytes} bytes</span>
+                      </div>
+                      <div>
+                        <span className="text-[#8A8A8A] block text-[9px]">VALIDATION</span>
+                        <span className="text-[#22C55E] font-bold">VALID / ACCEPTED</span>
                       </div>
                     </div>
-                    <pre className="text-[11px] text-[#B3B3B3] font-mono overflow-x-auto whitespace-pre">
-                      {jsonString}
-                    </pre>
+
+                    {/* Parsed Sensor Values */}
+                    <div className="text-[11px] bg-[#000000] p-2.5 rounded border border-[#1f1f1f] space-y-1.5">
+                      <div className="text-[10px] text-[#8A8A8A] font-bold uppercase tracking-wider">
+                        Parsed Sensor Measurements
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px]">
+                        <div>
+                          <span className="text-[#8A8A8A]">ACCEL (X,Y,Z): </span>
+                          <span className="text-[#FFFFFF] font-mono">
+                            {packet.acceleration
+                              ? `${packet.acceleration.x?.toFixed(2) ?? '--'}, ${packet.acceleration.y?.toFixed(2) ?? '--'}, ${packet.acceleration.z?.toFixed(2) ?? '--'} m/s²`
+                              : 'NO DATA'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[#8A8A8A]">GYRO (X,Y,Z): </span>
+                          <span className="text-[#FFFFFF] font-mono">
+                            {packet.gyroscope
+                              ? `${packet.gyroscope.x?.toFixed(2) ?? '--'}, ${packet.gyroscope.y?.toFixed(2) ?? '--'}, ${packet.gyroscope.z?.toFixed(2) ?? '--'} °/s`
+                              : 'NO DATA'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[#8A8A8A]">DISTANCE: </span>
+                          <span className="text-[#FFFFFF] font-mono">
+                            {packet.distance !== null && packet.distance !== undefined
+                              ? `${packet.distance.toFixed(2)} m`
+                              : 'NO DATA'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[#8A8A8A]">ACOUSTIC: </span>
+                          <span className="text-[#FFFFFF] font-mono">
+                            {packet.soundLevel !== null && packet.soundLevel !== undefined
+                              ? `${packet.soundLevel.toFixed(1)} dB`
+                              : 'NO DATA'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[#8A8A8A]">BATTERY: </span>
+                          <span className="text-[#FFFFFF] font-mono">
+                            {packet.battery !== null && packet.battery !== undefined
+                              ? `${packet.battery.toFixed(0)}%`
+                              : 'NO DATA'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[#8A8A8A]">HW TIMESTAMP: </span>
+                          <span className="text-[#FFFFFF] font-mono">
+                            {packet.timestamp !== null && packet.timestamp !== undefined ? `${packet.timestamp}` : '--'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Raw Ingested JSON */}
+                    <div>
+                      <div className="text-[10px] text-[#8A8A8A] font-bold uppercase tracking-wider mb-1">
+                        Raw Ingested JSON Payload
+                      </div>
+                      <pre className="text-[11px] text-[#B3B3B3] font-mono overflow-x-auto whitespace-pre bg-[#000000] p-2.5 rounded border border-[#1f1f1f]">
+                        {jsonString}
+                      </pre>
+                    </div>
                   </div>
                 )}
               </div>

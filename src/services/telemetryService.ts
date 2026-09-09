@@ -137,18 +137,31 @@ export class LiveWebSocketTelemetryService implements ITelemetryService {
   private handleServerMessage(msg: WebSocketMessage): void {
     if (!msg || !msg.type) return;
 
-    switch (msg.type) {
+    switch (msg.type as string) {
       case 'TELEMETRY_UPDATE':
-        if (msg.payload && typeof msg.payload === 'object') {
-          this.telemetryListeners.forEach((listener) => listener(msg.payload as SensorTelemetry));
+      case 'telemetry': {
+        const telemetryObj = ((msg as any).telemetry || msg.payload) as SensorTelemetry | undefined;
+        if (telemetryObj && typeof telemetryObj === 'object' && telemetryObj.nodeId) {
+          this.telemetryListeners.forEach((listener) => listener(telemetryObj));
         }
         break;
+      }
 
       case 'NODE_STATUS_UPDATE':
+      case 'node_status': {
         if (Array.isArray(msg.payload)) {
           this.nodeStatusListeners.forEach((listener) => listener(msg.payload as NodeStatus[]));
+        } else if ((msg as any).node && typeof (msg as any).node === 'object') {
+          const singleNode = (msg as any).node as NodeStatus;
+          // Refresh list or trigger node listeners
+          this.fetchAllNodes().then((nodes) => {
+            this.nodeStatusListeners.forEach((listener) => listener(nodes));
+          }).catch(() => {
+            this.nodeStatusListeners.forEach((listener) => listener([singleNode]));
+          });
         }
         break;
+      }
 
       case 'INIT_SNAPSHOT':
         if (msg.payload) {

@@ -29,20 +29,43 @@ import {
 const PORT = 3000;
 const HOST = '0.0.0.0';
 
+interface InternalNodeDerivedMetrics {
+  accelMagnitude: number | null;
+  gyroMagnitude: number | null;
+  accelVariance: number | null;
+  gyroVariance: number | null;
+  acousticActivity: number | null;
+  distanceChange: number | null;
+  sensorQuality: number | null;
+  activityState: string;
+}
+
 interface InternalNodeRecord {
   nodeId: string;
   firstSeen: number;
   lastSeen: number;
   lastTimestamp: number | string | null;
+  previousSequenceNumber: number | null;
   lastSequenceNumber: number | null;
+  firstSequenceNumber: number | null;
+  highestSequenceNumber: number | null;
+  previousTelemetry: SensorTelemetry | null;
   latestTelemetry: SensorTelemetry | null;
   totalPacketsReceived: number;
   acceptedPacketCount: number;
   rejectedPacketCount: number;
   duplicatePacketsCount: number;
   outOfOrderPacketsCount: number;
+  sequenceGaps: number;
+  totalLostPackets: number;
+  lastRssi: number | null;
+  lastSnr: number | null;
+  lastDistance: number | null;
+  previousConnectionState: NodeConnectionState;
   freshness: SensorFreshnessMap;
   recentPacketTimes: number[];
+  telemetryWindow: SensorTelemetry[];
+  derivedMetrics: InternalNodeDerivedMetrics;
 }
 
 let eventCounter = 0;
@@ -196,6 +219,7 @@ async function startServer() {
       gyroZ: hasGyroZ ? 'AVAILABLE' : 'NO DATA',
       distance: distAvail,
       soundLevel: soundAvail,
+      acoustic: soundAvail,
       rf: rfAvail,
       battery: battAvail,
     };
@@ -455,13 +479,23 @@ async function startServer() {
         firstSeen: telemetry.serverReceiveTime,
         lastSeen: telemetry.serverReceiveTime,
         lastTimestamp: null,
+        previousSequenceNumber: null,
         lastSequenceNumber: null,
+        firstSequenceNumber: null,
+        highestSequenceNumber: null,
+        previousTelemetry: null,
         latestTelemetry: null,
         totalPacketsReceived: 0,
         acceptedPacketCount: 0,
         rejectedPacketCount: 0,
         duplicatePacketsCount: 0,
         outOfOrderPacketsCount: 0,
+        sequenceGaps: 0,
+        totalLostPackets: 0,
+        lastRssi: telemetry.rssi ?? null,
+        lastSnr: telemetry.snr ?? null,
+        lastDistance: telemetry.distance ?? null,
+        previousConnectionState: 'ONLINE',
         freshness: {
           lastTelemetryReceived: telemetry.serverReceiveTime,
           lastImuUpdate: telemetry.acceleration || telemetry.gyroscope ? telemetry.serverReceiveTime : null,
@@ -471,29 +505,58 @@ async function startServer() {
           lastBatteryUpdate: telemetry.battery !== null && telemetry.battery !== undefined ? telemetry.serverReceiveTime : null,
         },
         recentPacketTimes: [],
+        telemetryWindow: [],
+        derivedMetrics: {
+          accelMagnitude: null,
+          gyroMagnitude: null,
+          accelVariance: null,
+          gyroVariance: null,
+          acousticActivity: null,
+          distanceChange: null,
+          sensorQuality: null,
+          activityState: 'NO DATA',
+        },
       };
       nodeRegistry.set(nodeId, nodeRecord);
-      recordSystemEvent('NODE_REGISTERED', nodeId, 'Node registered from real hardware telemetry packet');
+      recordSystemEvent('NODE_REGISTERED', nodeId, `Node "${nodeId}" registered from real hardware telemetry packet`);
     }
 
-    // Duplicate detection check
+    // 16-bit Sequence & Duplicate & Out-of-Order evaluation
     let isDuplicate = false;
-    if (
-      nodeRecord.totalPacketsReceived > 0 &&
-      telemetry.sequenceNumber !== null &&
-      telemetry.sequenceNumber !== undefined &&
-      nodeRecord.lastSequenceNumber !== null &&
-      nodeRecord.lastSequenceNumber === telemetry.sequenceNumber
-    ) {
-      isDuplicate = true;
-    } else if (
-      nodeRecord.totalPacketsReceived > 0 &&
-      (telemetry.sequenceNumber === null || telemetry.sequenceNumber === undefined) &&
-      telemetry.timestamp !== null &&
-      nodeRecord.lastTimestamp !== null &&
-      nodeRecord.lastTimestamp === telemetry.timestamp
-    ) {
-      isDuplicate = true;
+    let isStaleOrder = false;
+    let missingPacketsCount = 0;
+
+    if (telemetry.sequenceNumber !== null && telemetry.sequenceNumber !== undefined) {
+      if (nodeRecord.lastSequenceNumber !== null) {
+        const prevSeq = nodeRecord.lastSequenceNumber;
+        const currSeq = telemetry.sequenceNumber;
+        // 16-bit sequence difference modulo 65536
+        const diff = (currSeq - prevSeq + 65536) % 65536;
+
+        if (diff === 0) {
+          isDuplicate = true;
+        } else if (diff > 32768) {
+          // Packet arrived with older sequence number
+          isStaleOrder = true;
+        } else {
+          // Normal forward sequence
+          if (diff > 1) {
+            missingPacketsCount = diff - 1;
+            nodeRecord.sequenceGaps += 1;
+            nodeRecord.totalLostPackets += missingPacketsCount;
+          }
+        }
+      }
+    } else if (telemetry.timestamp !== null && nodeRecord.lastTimestamp !== null) {
+      if (telemetry.timestamp === nodeRecord.lastTimestamp) {
+        isDuplicate = true;
+      } else if (
+        typeof telemetry.timestamp === 'number' &&
+        typeof nodeRecord.lastTimestamp === 'number' &&
+        telemetry.timestamp < nodeRecord.lastTimestamp
+      ) {
+        isStaleOrder = true;
+      }
     }
 
     if (isDuplicate) {
@@ -508,34 +571,13 @@ async function startServer() {
       };
     }
 
-    // Out-of-order check: older packets must never replace newer telemetry as the latest state
-    let isStaleOrder = false;
-    if (
-      nodeRecord.totalPacketsReceived > 0 &&
-      telemetry.sequenceNumber !== null &&
-      telemetry.sequenceNumber !== undefined &&
-      nodeRecord.lastSequenceNumber !== null &&
-      telemetry.sequenceNumber < nodeRecord.lastSequenceNumber
-    ) {
-      isStaleOrder = true;
-    } else if (
-      nodeRecord.totalPacketsReceived > 0 &&
-      telemetry.timestamp !== null &&
-      nodeRecord.lastTimestamp !== null &&
-      typeof telemetry.timestamp === 'number' &&
-      typeof nodeRecord.lastTimestamp === 'number' &&
-      telemetry.timestamp < nodeRecord.lastTimestamp
-    ) {
-      isStaleOrder = true;
-    }
-
     if (isStaleOrder) {
       totalOutOfOrderDetected++;
       nodeRecord.outOfOrderPacketsCount++;
       recordSystemEvent('OUT_OF_ORDER_PACKET', nodeId, `Out-of-order sequence #${telemetry.sequenceNumber ?? 'N/A'}`);
     }
 
-    // Update node record with real telemetry
+    // Update node freshness timestamps
     nodeRecord.lastSeen = telemetry.serverReceiveTime;
     nodeRecord.freshness.lastTelemetryReceived = telemetry.serverReceiveTime;
     if (telemetry.acceleration || telemetry.gyroscope) {
@@ -559,10 +601,40 @@ async function startServer() {
         nodeRecord.lastTimestamp = telemetry.timestamp;
       }
       if (telemetry.sequenceNumber !== null && telemetry.sequenceNumber !== undefined) {
+        nodeRecord.previousSequenceNumber = nodeRecord.lastSequenceNumber;
         nodeRecord.lastSequenceNumber = telemetry.sequenceNumber;
+        if (nodeRecord.firstSequenceNumber === null) {
+          nodeRecord.firstSequenceNumber = telemetry.sequenceNumber;
+          nodeRecord.highestSequenceNumber = telemetry.sequenceNumber;
+        } else if (nodeRecord.highestSequenceNumber === null || telemetry.sequenceNumber > nodeRecord.highestSequenceNumber) {
+          nodeRecord.highestSequenceNumber = telemetry.sequenceNumber;
+        }
+
+        // Calculate packet loss ONLY from sequence numbers
+        if (telemetry.packetLoss === null) {
+          const totalExpected = nodeRecord.acceptedPacketCount + 1 + nodeRecord.totalLostPackets;
+          if (totalExpected > 1 && (nodeRecord.totalLostPackets > 0 || nodeRecord.acceptedPacketCount > 0)) {
+            const lossRate = (nodeRecord.totalLostPackets / totalExpected) * 100;
+            telemetry.packetLoss = Math.min(100, Math.max(0, Number(lossRate.toFixed(1))));
+          } else {
+            telemetry.packetLoss = null;
+          }
+        }
+      } else {
+        telemetry.packetLoss = null;
       }
+
+      nodeRecord.previousTelemetry = nodeRecord.latestTelemetry;
       nodeRecord.latestTelemetry = telemetry;
     }
+
+    if (telemetry.rssi !== null && telemetry.rssi !== undefined) {
+      nodeRecord.lastRssi = telemetry.rssi;
+    }
+    if (telemetry.snr !== null && telemetry.snr !== undefined) {
+      nodeRecord.lastSnr = telemetry.snr;
+    }
+
     nodeRecord.totalPacketsReceived++;
     nodeRecord.acceptedPacketCount++;
 
@@ -580,6 +652,134 @@ async function startServer() {
     mostRecentNodeId = nodeId;
     lastIngestionTime = telemetry.serverReceiveTime;
 
+    // Real-Time Processing for this specific node using isolated rolling window
+    // 1. Instantaneous Accel & Gyro Magnitudes
+    let accelMagnitude: number | null = null;
+    if (telemetry.acceleration &&
+        typeof telemetry.acceleration.x === 'number' &&
+        typeof telemetry.acceleration.y === 'number' &&
+        typeof telemetry.acceleration.z === 'number') {
+      const { x, y, z } = telemetry.acceleration;
+      accelMagnitude = Number(Math.sqrt(x * x + y * y + z * z).toFixed(3));
+    }
+
+    let gyroMagnitude: number | null = null;
+    if (telemetry.gyroscope &&
+        typeof telemetry.gyroscope.x === 'number' &&
+        typeof telemetry.gyroscope.y === 'number' &&
+        typeof telemetry.gyroscope.z === 'number') {
+      const { x, y, z } = telemetry.gyroscope;
+      gyroMagnitude = Number(Math.sqrt(x * x + y * y + z * z).toFixed(3));
+    }
+
+    // 2. Append to node's rolling window (max 30 samples)
+    nodeRecord.telemetryWindow.push(telemetry);
+    if (nodeRecord.telemetryWindow.length > 30) {
+      nodeRecord.telemetryWindow.shift();
+    }
+
+    // 3. Acceleration Variance over node window
+    const accelMags = nodeRecord.telemetryWindow
+      .map((t) => {
+        if (!t.acceleration || typeof t.acceleration.x !== 'number') return null;
+        const { x, y, z } = t.acceleration;
+        return Math.sqrt(x * x + y * y + z * z);
+      })
+      .filter((v): v is number => v !== null);
+
+    let accelVariance: number | null = null;
+    if (accelMags.length >= 2) {
+      const mean = accelMags.reduce((a, b) => a + b, 0) / accelMags.length;
+      const sumSq = accelMags.reduce((acc, val) => acc + (val - mean) ** 2, 0);
+      accelVariance = Number((sumSq / (accelMags.length - 1)).toFixed(4));
+    }
+
+    // 4. Gyroscope Variance over node window
+    const gyroMags = nodeRecord.telemetryWindow
+      .map((t) => {
+        if (!t.gyroscope || typeof t.gyroscope.x !== 'number') return null;
+        const { x, y, z } = t.gyroscope;
+        return Math.sqrt(x * x + y * y + z * z);
+      })
+      .filter((v): v is number => v !== null);
+
+    let gyroVariance: number | null = null;
+    if (gyroMags.length >= 2) {
+      const mean = gyroMags.reduce((a, b) => a + b, 0) / gyroMags.length;
+      const sumSq = gyroMags.reduce((acc, val) => acc + (val - mean) ** 2, 0);
+      gyroVariance = Number((sumSq / (gyroMags.length - 1)).toFixed(4));
+    }
+
+    // 5. Acoustic Activity (average dB in window)
+    const sounds = nodeRecord.telemetryWindow
+      .map((t) => t.soundLevel)
+      .filter((v): v is number => typeof v === 'number');
+    let acousticActivity: number | null = null;
+    if (sounds.length > 0) {
+      acousticActivity = Number((sounds.reduce((a, b) => a + b, 0) / sounds.length).toFixed(1));
+    }
+
+    // 6. Distance Change
+    let distanceChange: number | null = null;
+    if (telemetry.distance !== null && typeof telemetry.distance === 'number') {
+      if (nodeRecord.lastDistance !== null) {
+        distanceChange = Number(Math.abs(telemetry.distance - nodeRecord.lastDistance).toFixed(3));
+      }
+      nodeRecord.lastDistance = telemetry.distance;
+    }
+
+    // 7. Sensor Quality (% of valid channels)
+    let validCh = 0;
+    let totalCh = 0;
+    for (const sample of nodeRecord.telemetryWindow) {
+      totalCh += 4;
+      if (sample.acceleration) validCh++;
+      if (sample.gyroscope) validCh++;
+      if (sample.distance !== null) validCh++;
+      if (sample.soundLevel !== null) validCh++;
+    }
+    const sensorQuality = totalCh > 0 ? Number(((validCh / totalCh) * 100).toFixed(1)) : null;
+
+    // 8. Deterministic Activity State
+    let activityState = 'NO DATA';
+    if (accelMagnitude !== null || gyroMagnitude !== null) {
+      if ((accelVariance !== null && accelVariance > 2.0) || (gyroVariance !== null && gyroVariance > 15.0)) {
+        activityState = 'VIBRATION / MOTION';
+      } else if (accelVariance !== null && accelVariance > 0.3) {
+        activityState = 'ACTIVE';
+      } else {
+        activityState = 'STATIC / STABLE';
+      }
+    }
+
+    nodeRecord.derivedMetrics = {
+      accelMagnitude,
+      gyroMagnitude,
+      accelVariance,
+      gyroVariance,
+      acousticActivity,
+      distanceChange,
+      sensorQuality,
+      activityState,
+    };
+
+    // Deterministic Hardware Alert Triggers (Never fake alerts)
+    if (accelMagnitude !== null && (accelMagnitude > 25.0 || accelMagnitude < 1.0)) {
+      recordSystemEvent('PROCESSING_ERROR', nodeId, `Abnormal measured acceleration: ${accelMagnitude} m/s²`);
+    }
+    if (telemetry.soundLevel !== null && telemetry.soundLevel > 85.0) {
+      recordSystemEvent('PROCESSING_ERROR', nodeId, `Abnormal measured acoustic level: ${telemetry.soundLevel} dB`);
+    }
+    if (telemetry.distance !== null && telemetry.distance < 0.30) {
+      recordSystemEvent('PROCESSING_ERROR', nodeId, `Obstacle proximity warning: ${telemetry.distance} m`);
+    }
+    if (telemetry.packetLoss !== null && telemetry.packetLoss > 20.0) {
+      recordSystemEvent('PROCESSING_ERROR', nodeId, `Severe packet loss measured: ${telemetry.packetLoss}%`);
+    }
+    if (telemetry.rssi !== null && telemetry.rssi < -115) {
+      recordSystemEvent('PROCESSING_ERROR', nodeId, `Weak LoRa signal: ${telemetry.rssi} dBm (SNR: ${telemetry.snr ?? 'N/A'} dB)`);
+    }
+
     recordSystemEvent('PACKET_RECEIVED', nodeId, `Sequence #${telemetry.sequenceNumber ?? 'N/A'}`);
 
     // Push to telemetry history buffer
@@ -589,6 +789,23 @@ async function startServer() {
     }
 
     // Broadcast to dashboard clients
+    const nodeHealth = determineNodeHealth(nodeRecord);
+
+    broadcast({
+      type: 'telemetry' as any,
+      nodeId,
+      telemetry,
+      payload: telemetry,
+    });
+
+    broadcast({
+      type: 'node_status' as any,
+      nodeId,
+      status: nodeHealth.status,
+      node: nodeHealth,
+      payload: getAllNodeStatuses(),
+    });
+
     broadcast({
       type: 'TELEMETRY_UPDATE',
       payload: telemetry,
@@ -609,15 +826,37 @@ async function startServer() {
 
   // Periodic node staleness evaluation (every 2 seconds)
   setInterval(() => {
-    if (nodeRegistry.size > 0 && clients.size > 0) {
-      broadcast({
-        type: 'NODE_STATUS_UPDATE',
-        payload: getAllNodeStatuses(),
-      });
-      broadcast({
-        type: 'GATEWAY_STATS',
-        payload: getGatewayStats(),
-      });
+    if (nodeRegistry.size > 0) {
+      for (const [id, rec] of nodeRegistry.entries()) {
+        const health = determineNodeHealth(rec);
+        if (health.status !== rec.previousConnectionState) {
+          if (health.status === 'OFFLINE') {
+            recordSystemEvent('NODE_OFFLINE', id, `Node silent for >30s`);
+          } else if (health.status === 'STALE') {
+            recordSystemEvent('NODE_STALE', id, `No packet received for >10s`);
+          }
+          rec.previousConnectionState = health.status;
+
+          broadcast({
+            type: 'node_status' as any,
+            nodeId: id,
+            status: health.status,
+            node: health,
+            payload: getAllNodeStatuses(),
+          });
+        }
+      }
+
+      if (clients.size > 0) {
+        broadcast({
+          type: 'NODE_STATUS_UPDATE',
+          payload: getAllNodeStatuses(),
+        });
+        broadcast({
+          type: 'GATEWAY_STATS',
+          payload: getGatewayStats(),
+        });
+      }
     }
   }, 2000);
 
@@ -625,18 +864,34 @@ async function startServer() {
 
   // Health check endpoint: Real application/backend health state
   app.get('/api/health', (_req, res) => {
+    const stats = getGatewayStats();
+    const now = Date.now();
+    const lastTime = stats.lastIngestionTime;
+    const isGatewayConnected = lastTime !== null && (now - lastTime) < 15000;
+    const isLoraReceiving = lastTime !== null && (now - lastTime) < 5000;
+
     res.json({
       status: 'ok',
+      backendStatus: 'ONLINE',
+      serverTime: now,
+      serverTimeISO: new Date().toISOString(),
+      listeningPort: PORT,
+      port: PORT,
+      wsClientCount: clients.size,
+      webSocketClientCount: clients.size,
+      registeredNodeCount: nodeRegistry.size,
+      acceptedPacketCount: totalPacketsAccepted,
+      rejectedPacketCount: totalPacketsRejected,
+      duplicatePacketCount: totalDuplicatesDetected,
+      outOfOrderPacketCount: totalOutOfOrderDetected,
+      lastRealPacketTime: lastTime,
+      lastRealPacketAgeMs: lastTime ? now - lastTime : null,
+      gatewayConnected: isGatewayConnected,
+      loraReceiving: isLoraReceiving,
       service: 'mine-rescue-telemetry-ingestion',
-      uptimeSeconds: Math.floor((Date.now() - serverStartTime) / 1000),
-      webSocketClientsCount: clients.size,
-      registeredNodesCount: nodeRegistry.size,
-      validTelemetryCount: totalPacketsAccepted,
-      rejectedTelemetryCount: totalPacketsRejected,
-      duplicatesCount: totalDuplicatesDetected,
+      uptimeSeconds: Math.floor((now - serverStartTime) / 1000),
       mostRecentNodeId: mostRecentNodeId ?? null,
-      lastTelemetryReceiveTime: lastIngestionTime ?? null,
-      latestPacketStatus: lastIngestionTime ? 'RECEIVED' : 'NO DATA',
+      latestPacketStatus: lastTime ? 'RECEIVED' : 'NO DATA',
     });
   });
 
@@ -723,6 +978,27 @@ async function startServer() {
       accepted: true,
       success: true,
       latestByNode,
+    });
+  });
+
+  // Retrieve latest telemetry and state for a specific node by ID in path
+  app.get('/api/telemetry/:nodeId', (req, res) => {
+    const targetNodeId = req.params.nodeId;
+    const record = nodeRegistry.get(targetNodeId);
+    if (!record || !record.latestTelemetry) {
+      res.status(404).json({
+        accepted: false,
+        success: false,
+        message: `No telemetry found for node "${targetNodeId}"`,
+        telemetry: null,
+      });
+      return;
+    }
+    res.json({
+      accepted: true,
+      success: true,
+      telemetry: record.latestTelemetry,
+      nodeStatus: determineNodeHealth(record),
     });
   });
 

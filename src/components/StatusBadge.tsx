@@ -24,7 +24,12 @@ export type AnyStatus =
   | 'RESOLVED'
   | 'NO DATA'
   | 'VALID'
-  | 'RECEIVING';
+  | 'RECEIVING'
+  | 'NO PACKETS'
+  | 'OK'
+  | 'PARTIAL'
+  | 'CONNECTED'
+  | 'DISCONNECTED';
 
 interface StatusBadgeProps {
   id?: string;
@@ -47,15 +52,18 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
   let colorClasses = 'bg-[#0D0D0D] text-[#8A8A8A] border-[#222222]';
   let dotColor = 'bg-[#8A8A8A]';
 
-  if (['ONLINE', 'HEALTHY', 'NORMAL', 'CONNECTED', 'VALID', 'RECEIVING', 'RESOLVED'].includes(norm)) {
+  if (['ONLINE', 'HEALTHY', 'NORMAL', 'CONNECTED', 'VALID', 'RECEIVING', 'RESOLVED', 'OK'].includes(norm)) {
     colorClasses = 'bg-[#071a0e] text-[#22C55E] border-[#1b4d29]';
     dotColor = 'bg-[#22C55E]';
-  } else if (['STALE', 'DEGRADED', 'LOW', 'CONNECTING', 'WARNING', 'WEAK'].includes(norm)) {
+  } else if (['STALE', 'DEGRADED', 'LOW', 'CONNECTING', 'WARNING', 'WEAK', 'PARTIAL'].includes(norm)) {
     colorClasses = 'bg-[#1c1203] text-[#F59E0B] border-[#5e3805]';
     dotColor = 'bg-[#F59E0B]';
   } else if (['OFFLINE', 'ERROR', 'CRITICAL', 'DISCONNECTED', 'INVALID', 'ACTIVE'].includes(norm)) {
     colorClasses = 'bg-[#1f0505] text-[#EF4444] border-[#6b1414]';
     dotColor = 'bg-[#EF4444]';
+  } else if (['NO DATA', 'NO PACKETS', 'UNKNOWN', 'NEVER'].includes(norm)) {
+    colorClasses = 'bg-[#0D0D0D] text-[#8A8A8A] border-[#222222]';
+    dotColor = 'bg-[#8A8A8A]';
   } else if (['ACKNOWLEDGED'].includes(norm)) {
     colorClasses = 'bg-[#081a26] text-[#38BDF8] border-[#0e3b57]';
     dotColor = 'bg-[#38BDF8]';
