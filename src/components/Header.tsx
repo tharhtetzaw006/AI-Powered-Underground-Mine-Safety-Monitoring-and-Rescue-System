@@ -1,7 +1,7 @@
 import React from 'react';
 import { useLiveData } from '../context/LiveDataContext.tsx';
 import { StatusBadge } from './StatusBadge.tsx';
-import { Shield, Clock, Terminal, Activity, Radio } from 'lucide-react';
+import { Clock, Terminal, Activity, Radio } from 'lucide-react';
 
 interface HeaderProps {
   onToggleGatewayInfo: () => void;
@@ -59,10 +59,7 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="bg-[#080808] border-b border-[#222222] text-[#FFFFFF] px-3 sm:px-4 py-2 sticky top-0 z-30 font-mono shrink-0 w-full select-none">
       <div className="w-full flex flex-col md:flex-row md:items-center justify-between gap-2.5">
         {/* System Name & Identification */}
-        <div className="flex items-center gap-2.5">
-          <div className="p-1.5 bg-[#0D0D0D] border border-[#222222] rounded text-[#38BDF8] shrink-0">
-            <Shield className="w-4 h-4 text-[#38BDF8]" />
-          </div>
+        <div className="flex items-center">
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xs sm:text-sm font-bold tracking-wider uppercase text-[#FFFFFF]">
