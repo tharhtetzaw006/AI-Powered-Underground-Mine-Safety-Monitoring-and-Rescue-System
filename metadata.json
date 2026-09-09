@@ -1,0 +1,6 @@
+{
+  "name": "Mine-Rescue Monitoring Dashboard",
+  "description": "Real hardware-connected mine-rescue monitoring dashboard with live telemetry ingestion and node health tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
