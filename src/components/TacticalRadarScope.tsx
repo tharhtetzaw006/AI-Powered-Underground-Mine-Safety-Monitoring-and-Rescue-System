@@ -262,57 +262,6 @@ export const TacticalRadarScope: React.FC<TacticalRadarScopeProps> = ({
         }
       `}</style>
 
-      {/* ========================================================================= */}
-      {/* PRESENTATION CONTROL & REAL HARDWARE STATUS RIBBON                        */}
-      {/* ========================================================================= */}
-      <div className="flex flex-wrap items-center justify-between gap-2 p-2 rounded bg-[#03070C] border border-[#16222F] text-[11px]">
-        {/* Left: Compact Demo Mode Toggle & Status Indicator */}
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              setIsDemoMode((prev) => {
-                const next = !prev;
-                if (!next) {
-                  setSelectedTargetId(null);
-                }
-                return next;
-              });
-            }}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-bold tracking-wider uppercase transition-colors border ${
-              isDemoMode
-                ? 'bg-[#2A1705] text-[#F59E0B] border-[#D97706] hover:bg-[#381F07]'
-                : 'bg-[#0B131D] text-[#94A3B8] border-[#1E293B] hover:text-[#FFFFFF] hover:border-[#38BDF8]/50'
-            }`}
-            title="Toggle presentation demo mode to preview radar PPI target tracking"
-          >
-            <Radio className="w-3 h-3" />
-            <span>DEMO MODE: {isDemoMode ? 'ON' : 'OFF'}</span>
-          </button>
-
-          {isDemoMode && (
-            <span className="px-2 py-0.5 rounded bg-[#2A1705] text-[#F59E0B] border border-[#D97706]/60 text-[10px] font-bold tracking-wide flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B] animate-ping" />
-              DEMO MODE — SIMULATED TARGETS
-            </span>
-          )}
-        </div>
-
-        {/* Right: Separate Real Hardware Status Indicator */}
-        <div className="flex items-center gap-1.5 text-[10px]">
-          <span className="text-[#64748B] uppercase">HARDWARE:</span>
-          <span
-            className={`px-2 py-0.5 rounded font-bold border ${
-              isConnected
-                ? 'bg-[#072412] text-[#22C55E] border-[#22C55E]/40'
-                : 'bg-[#121212] text-[#8A8A8A] border-[#2A2A2A]'
-            }`}
-          >
-            {isConnected ? 'REAL RADAR: CONNECTED' : 'REAL RADAR: NO DATA'}
-          </span>
-        </div>
-      </div>
-
       {/* Main Console Container: Scope + Tactical Target Panel */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-start">
         {/* ========================================================================= */}
@@ -324,12 +273,6 @@ export const TacticalRadarScope: React.FC<TacticalRadarScopeProps> = ({
             <div className="flex items-center gap-2 min-w-0">
               <Compass className="w-3.5 h-3.5 text-[#38BDF8] shrink-0" />
               <span className="font-bold tracking-wider text-[#E2E8F0] whitespace-nowrap">PPI SCOPE // CONSOLE 01</span>
-              {isDemoMode && (
-                <span className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#2A1705] text-[#F59E0B] border border-[#D97706]/60 text-[9px] font-bold tracking-wide whitespace-nowrap">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B] animate-ping" />
-                  DEMO MODE — SIMULATED TARGETS
-                </span>
-              )}
             </div>
 
             <div className="flex items-center gap-2.5 shrink-0">
@@ -795,35 +738,6 @@ export const TacticalRadarScope: React.FC<TacticalRadarScopeProps> = ({
                 />
               </g>
 
-              {/* DEMO MODE — SIMULATED TARGETS scope watermark */}
-              {isDemoMode && (
-                <g transform={`translate(${center}, ${center + radius - 16})`}>
-                  <rect
-                    x="-85"
-                    y="-9"
-                    width="170"
-                    height="18"
-                    fill="#1A0D00"
-                    fillOpacity="0.85"
-                    stroke="#D97706"
-                    strokeWidth="1"
-                    rx="2"
-                  />
-                  <text
-                    x="0"
-                    y="3.5"
-                    fill="#F59E0B"
-                    fontSize="8"
-                    fontWeight="bold"
-                    fontFamily="monospace"
-                    textAnchor="middle"
-                    letterSpacing="0.5"
-                  >
-                    DEMO MODE — SIMULATED TARGETS
-                  </text>
-                </g>
-              )}
-
               {/* Empty State Banner in Scope (When no targets or disconnected) */}
               {realTargets.length === 0 && !isDemoMode && (
                 <g transform={`translate(${center}, ${center + 35})`}>
@@ -932,15 +846,13 @@ export const TacticalRadarScope: React.FC<TacticalRadarScopeProps> = ({
             <div className="flex items-center gap-2">
               <Eye className="w-3.5 h-3.5 text-[#38BDF8]" />
               <span className="text-[10px] text-[#8A8A8A] uppercase">
-                {isDemoMode ? 'Targets (Demo Active):' : 'Real Targets:'}
+                Targets:
               </span>
               <strong className="text-xs text-[#FFFFFF]">
-                {isDemoMode
-                  ? `${demoTargets.length} DEMO${realTargets.length > 0 ? ` + ${realTargets.length} REAL` : ''}`
+                {candidateTargets.length > 0
+                  ? candidateTargets.length
                   : telemetry?.targetCount !== null && telemetry?.targetCount !== undefined
                   ? telemetry.targetCount
-                  : realTargets.length > 0
-                  ? realTargets.length
                   : '--'}
               </strong>
             </div>
@@ -948,7 +860,6 @@ export const TacticalRadarScope: React.FC<TacticalRadarScopeProps> = ({
             {candidateTargets.length > 1 && (
               <div className="flex flex-wrap items-center gap-1">
                 {candidateTargets.map((t) => {
-                  const isDemo = Boolean((t as any).isDemo);
                   const isSelected = activeTarget?.targetId === t.targetId;
                   return (
                     <button
@@ -957,11 +868,7 @@ export const TacticalRadarScope: React.FC<TacticalRadarScopeProps> = ({
                       onClick={() => setSelectedTargetId(t.targetId)}
                       className={`px-1.5 py-0.5 rounded text-[9px] border transition-colors ${
                         isSelected
-                          ? isDemo
-                            ? 'bg-[#D97706] text-[#000000] border-[#F59E0B] font-bold'
-                            : 'bg-[#0EA5E9] text-[#000000] border-[#38BDF8] font-bold'
-                          : isDemo
-                          ? 'bg-[#1C1204] text-[#F59E0B] border-[#78350F] hover:bg-[#2A1705]'
+                          ? 'bg-[#0EA5E9] text-[#000000] border-[#38BDF8] font-bold'
                           : 'bg-[#0A121A] text-[#94A3B8] border-[#1E293B] hover:text-[#FFFFFF]'
                       }`}
                     >
@@ -978,56 +885,50 @@ export const TacticalRadarScope: React.FC<TacticalRadarScopeProps> = ({
             (() => {
               const isDemo = Boolean((activeTarget as any).isDemo);
               return (
-                <div className={`p-2.5 rounded bg-[#040A0F] border space-y-2 ${isDemo ? 'border-[#78350F]' : 'border-[#1B4D29]'}`}>
+                <div className="p-2.5 rounded bg-[#040A0F] border border-[#1B4D29] space-y-2">
                   {/* Target ID & Classification Banner */}
-                  <div className={`flex items-center justify-between pb-1.5 border-b ${isDemo ? 'border-[#3D1E07]' : 'border-[#132A1C]'}`}>
+                  <div className="flex items-center justify-between pb-1.5 border-b border-[#132A1C]">
                     <div className="flex items-center gap-1.5">
-                      <span className={`w-2 h-2 rounded-full animate-pulse ${isDemo ? 'bg-[#F59E0B]' : 'bg-[#22C55E]'}`} />
+                      <span className="w-2 h-2 rounded-full animate-pulse bg-[#22C55E]" />
                       <span className="text-xs font-bold text-[#FFFFFF]">
-                        {isDemo ? `TARGET ID: ${activeTarget.targetId}` : activeTarget.targetId}
+                        {activeTarget.targetId}
                       </span>
-                      <span
-                        className={`text-[9px] px-1 rounded border ${
-                          isDemo
-                            ? 'bg-[#2A1705] text-[#F59E0B] border-[#78350F] font-bold'
-                            : 'bg-[#0A1F12] text-[#22C55E] border-[#1B4D29]'
-                        }`}
-                      >
-                        {isDemo ? 'DEMO TRACK' : 'ACTIVE TRACK'}
-                      </span>
+                      {!isDemo && (
+                        <span className="text-[9px] px-1 rounded border bg-[#0A1F12] text-[#22C55E] border-[#1B4D29]">
+                          ACTIVE TRACK
+                        </span>
+                      )}
                     </div>
                     <div className="text-[9px] text-[#8A8A8A]">
-                      {isDemo ? 'SIMULATED TARGET (DEMO)' : `UPDATED: ${formatTime(activeTarget.lastSeen)}`}
+                      {!isDemo && `UPDATED: ${formatTime(activeTarget.lastSeen)}`}
                     </div>
                   </div>
 
                   {/* Classification Display */}
-                  <div className={`p-2 rounded bg-[#020609] border space-y-1 ${isDemo ? 'border-[#3D1E07]' : 'border-[#1A2E22]'}`}>
+                  <div className="p-2 rounded bg-[#020609] border border-[#1A2E22] space-y-1">
                     <div className="text-[9px] text-[#8A8A8A] uppercase">CLASSIFICATION:</div>
                     <div className="flex items-center justify-between">
                       <div className="text-xs font-bold">
-                        {isDemo ? (
-                          <span className="text-[#F59E0B]">UNKNOWN / DEMO</span>
-                        ) : activeTarget.classification ? (
+                        {isDemo ? null : activeTarget.classification ? (
                           <span className="text-[#22C55E]">{activeTarget.classification.toUpperCase()}</span>
                         ) : (
                           <span className="text-[#F59E0B]">UNKNOWN TARGET</span>
                         )}
                       </div>
-                      <div className="text-[10px]">
-                        <span className="text-[#8A8A8A]">CONFIDENCE: </span>
-                        <strong className="text-[#FFFFFF]">
-                          {isDemo
-                            ? 'DEMO'
-                            : activeTarget.classificationConfidence !== null && activeTarget.classificationConfidence !== undefined
-                            ? `${(activeTarget.classificationConfidence * 100).toFixed(0)}%`
-                            : '--'}
-                        </strong>
-                      </div>
+                      {!isDemo && (
+                        <div className="text-[10px]">
+                          <span className="text-[#8A8A8A]">CONFIDENCE: </span>
+                          <strong className="text-[#FFFFFF]">
+                            {activeTarget.classificationConfidence !== null && activeTarget.classificationConfidence !== undefined
+                              ? `${(activeTarget.classificationConfidence * 100).toFixed(0)}%`
+                              : '--'}
+                          </strong>
+                        </div>
+                      )}
                     </div>
                     <div className="text-[8px] text-[#666666]">
                       {isDemo
-                        ? 'SIMULATED PRESENTATION TARGET — NOT CLASSIFIED (HUMAN/ANIMAL NOT VERIFIED)'
+                        ? null
                         : activeTarget.classification
                         ? 'VALIDATED CLASSIFIER MODEL OUTPUT'
                         : 'CLASSIFICATION NOT AVAILABLE (NO INFERENCE FROM MOTION)'}
@@ -1040,42 +941,32 @@ export const TacticalRadarScope: React.FC<TacticalRadarScopeProps> = ({
                     <div className="p-1.5 rounded bg-[#020508] border border-[#152332]">
                       <div className="text-[9px] text-[#8A8A8A] uppercase">RANGE:</div>
                       <div className="text-sm font-bold text-[#FFFFFF]">
-                        {isDemo ? (
-                          <span className="text-[#F59E0B]">DEMO</span>
-                        ) : (
-                          formatNum(activeTarget.rangeM, ' m', 2)
-                        )}
+                        {formatNum(activeTarget.rangeM, ' m', 2)}
                       </div>
-                      <div className="text-[8px] text-[#666666]">{isDemo ? `SIMULATED (${formatNum(activeTarget.rangeM, ' m', 2)})` : 'RADIAL DISTANCE'}</div>
+                      <div className="text-[8px] text-[#666666]">RADIAL DISTANCE</div>
                     </div>
 
                     {/* Radial Velocity */}
                     <div className="p-1.5 rounded bg-[#020508] border border-[#152332]">
                       <div className="text-[9px] text-[#8A8A8A] uppercase">VELOCITY:</div>
                       <div className="text-sm font-bold text-[#FFFFFF]">
-                        {isDemo ? (
-                          <span className="text-[#F59E0B]">DEMO</span>
-                        ) : (
-                          formatNum(activeTarget.radialVelocityMps, ' m/s', 2)
-                        )}
+                        {formatNum(activeTarget.radialVelocityMps, ' m/s', 2)}
                       </div>
-                      <div className="text-[8px] text-[#666666]">{isDemo ? `SIMULATED (${formatNum(activeTarget.radialVelocityMps, ' m/s', 2)})` : 'DOPPLER VELOCITY'}</div>
+                      <div className="text-[8px] text-[#666666]">DOPPLER VELOCITY</div>
                     </div>
 
                     {/* Bearing / Azimuth */}
                     <div className="p-1.5 rounded bg-[#020508] border border-[#152332]">
                       <div className="text-[9px] text-[#8A8A8A] uppercase">BEARING:</div>
                       <div className="text-xs font-bold text-[#FFFFFF]">
-                        {isDemo ? (
-                          <span className="text-[#F59E0B]">DEMO</span>
-                        ) : activeTarget.azimuthDeg !== null && activeTarget.azimuthDeg !== undefined ? (
+                        {activeTarget.azimuthDeg !== null && activeTarget.azimuthDeg !== undefined ? (
                           `${activeTarget.azimuthDeg.toFixed(1)}°`
                         ) : (
                           <span className="text-[#8A8A8A]">NOT AVAILABLE (1D)</span>
                         )}
                       </div>
                       <div className="text-[8px] text-[#666666]">
-                        {isDemo ? `SIMULATED (${activeTarget.azimuthDeg.toFixed(1)}°)` : activeTarget.azimuthDeg !== null ? 'BEARING ANGLE' : 'ISORANGE GATE ACTIVE'}
+                        {activeTarget.azimuthDeg !== null ? 'BEARING ANGLE' : 'ISORANGE GATE ACTIVE'}
                       </div>
                     </div>
 
@@ -1083,9 +974,7 @@ export const TacticalRadarScope: React.FC<TacticalRadarScopeProps> = ({
                     <div className="p-1.5 rounded bg-[#020508] border border-[#152332]">
                       <div className="text-[9px] text-[#8A8A8A] uppercase">MOTION STATE:</div>
                       <div className="text-xs font-bold truncate">
-                        {isDemo ? (
-                          <span className="text-[#F59E0B]">DEMO</span>
-                        ) : activeTarget.motionState === 'MOTION_DETECTED' ? (
+                        {activeTarget.motionState === 'MOTION_DETECTED' ? (
                           <span className="text-[#22C55E]">MOTION DETECTED</span>
                         ) : activeTarget.motionState === 'STATIONARY' ? (
                           <span className="text-[#38BDF8]">STATIONARY</span>
@@ -1093,30 +982,26 @@ export const TacticalRadarScope: React.FC<TacticalRadarScopeProps> = ({
                           <span className="text-[#8A8A8A]">{activeTarget.motionState ?? '--'}</span>
                         )}
                       </div>
-                      <div className="text-[8px] text-[#666666]">{isDemo ? 'SIMULATED MOTION' : 'DYNAMICS'}</div>
+                      <div className="text-[8px] text-[#666666]">DYNAMICS</div>
                     </div>
 
                     {/* SNR (dB) */}
                     <div className="p-1.5 rounded bg-[#020508] border border-[#152332]">
                       <div className="text-[9px] text-[#8A8A8A] uppercase">SNR:</div>
                       <div className="text-xs font-bold text-[#FFFFFF]">
-                        {isDemo ? (
-                          <span className="text-[#F59E0B]">DEMO</span>
-                        ) : (
-                          formatNum(activeTarget.snrDb, ' dB', 1)
-                        )}
+                        {formatNum(activeTarget.snrDb, ' dB', 1)}
                       </div>
-                      <div className="text-[8px] text-[#666666]">{isDemo ? `SIMULATED (${formatNum(activeTarget.snrDb, ' dB', 1)})` : 'SIGNAL QUALITY'}</div>
+                      <div className="text-[8px] text-[#666666]">SIGNAL QUALITY</div>
                     </div>
 
                     {/* Tracking State */}
                     <div className="p-1.5 rounded bg-[#020508] border border-[#152332]">
                       <div className="text-[9px] text-[#8A8A8A] uppercase">TRACK STATE:</div>
-                      <div className={`text-xs font-bold ${isDemo ? 'text-[#F59E0B]' : 'text-[#22C55E]'}`}>
-                        {isDemo ? 'DEMO' : 'ACQUIRED'}
+                      <div className="text-xs font-bold text-[#22C55E]">
+                        ACQUIRED
                       </div>
                       <div className="text-[8px] text-[#666666]">
-                        {isDemo ? 'SIMULATED PRESENTATION TRACK' : 'LOCKED TRACK'}
+                        LOCKED TRACK
                       </div>
                     </div>
                   </div>

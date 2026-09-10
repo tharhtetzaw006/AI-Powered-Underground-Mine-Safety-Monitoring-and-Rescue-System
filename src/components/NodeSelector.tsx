@@ -82,12 +82,6 @@ export const NodeSelector: React.FC = () => {
           <h2 className="text-xs font-bold tracking-wider uppercase text-[#FFFFFF]">
             Field Rescue Nodes ({showDemoNodes ? '4' : nodes.length})
           </h2>
-          {showDemoNodes && (
-            <span className="px-1.5 py-0.5 rounded bg-[#1C1204] text-[#F59E0B] border border-[#78350F] text-[9px] font-bold tracking-wide flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B] animate-ping" />
-              SIMULATED DEMO TELEMETRY
-            </span>
-          )}
         </div>
 
         <div className="flex items-center gap-3">
@@ -113,31 +107,10 @@ export const NodeSelector: React.FC = () => {
         </div>
       </div>
 
-      {/* When DEMO MODE is ON and no real nodes: Show Demo Legend & Demo Node Cards */}
+      {/* When DEMO MODE is ON and no real nodes: Show Demo Node Cards */}
       {showDemoNodes ? (
         <div className="space-y-2">
-          {/* Status Legend / Notice */}
-          <div className="p-2 rounded bg-[#050402] border border-[#3D2305] flex flex-wrap items-center justify-between gap-2 text-[10px]">
-            <div className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B] animate-pulse" />
-              <span className="font-bold text-[#F59E0B] tracking-wider uppercase">
-                SIMULATED DEMO TELEMETRY
-              </span>
-              <span className="text-[#8A8A8A] hidden md:inline">
-                (Visual simulation for presentation — isolated from real telemetry)
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 rounded bg-[#111111] text-[#8A8A8A] border border-[#222222] font-semibold">
-                REAL TELEMETRY: NO DATA
-              </span>
-              <span className="px-2 py-0.5 rounded bg-[#1C1204] text-[#F59E0B] border border-[#78350F] font-semibold">
-                DEMO TELEMETRY: ACTIVE
-              </span>
-            </div>
-          </div>
-
-          {/* 4 Demo Field Node Cards */}
+          {/* 4 Field Node Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
             {DEMO_FIELD_NODES.map((node) => {
               const isSelected = node.nodeId === selectedDemoNodeId;
@@ -155,9 +128,6 @@ export const NodeSelector: React.FC = () => {
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs font-bold text-[#FFFFFF] tracking-wider truncate">
                         {node.nodeId}
-                      </span>
-                      <span className="text-[9px] px-1 rounded bg-[#1C1204] text-[#F59E0B] border border-[#78350F] font-semibold">
-                        DEMO
                       </span>
                     </div>
                     <StatusBadge status={node.status} size="xs" />
