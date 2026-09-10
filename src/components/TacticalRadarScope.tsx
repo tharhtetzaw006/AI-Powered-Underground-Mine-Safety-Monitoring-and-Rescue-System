@@ -133,10 +133,10 @@ export const TacticalRadarScope: React.FC<TacticalRadarScopeProps> = ({
     return [
       {
         targetId: 'DEMO-T01',
-        rangeM: 4.2 + 0.35 * Math.sin(t * 0.4),
-        azimuthDeg: (48 + 14 * Math.cos(t * 0.3) + 360) % 360,
-        radialVelocityMps: 0.14 * Math.cos(t * 0.4),
-        snrDb: 18.4,
+        rangeM: 3.0 + 0.22 * Math.sin(t * 0.4),
+        azimuthDeg: (45 + 7 * Math.cos(t * 0.3) + 360) % 360,
+        radialVelocityMps: 0.12 * Math.cos(t * 0.4),
+        snrDb: 19.5,
         motionState: 'MOTION_DETECTED',
         classification: 'UNKNOWN / DEMO',
         classificationConfidence: null,
@@ -145,10 +145,10 @@ export const TacticalRadarScope: React.FC<TacticalRadarScopeProps> = ({
       },
       {
         targetId: 'DEMO-T02',
-        rangeM: 7.5 + 0.5 * Math.cos(t * 0.25),
-        azimuthDeg: (138 + 16 * Math.sin(t * 0.2) + 360) % 360,
-        radialVelocityMps: -0.12 * Math.sin(t * 0.25),
-        snrDb: 14.2,
+        rangeM: 5.0 + 0.30 * Math.cos(t * 0.25),
+        azimuthDeg: (120 + 9 * Math.sin(t * 0.2) + 360) % 360,
+        radialVelocityMps: -0.14 * Math.sin(t * 0.25),
+        snrDb: 16.2,
         motionState: 'MOTION_DETECTED',
         classification: 'UNKNOWN / DEMO',
         classificationConfidence: null,
@@ -157,11 +157,11 @@ export const TacticalRadarScope: React.FC<TacticalRadarScopeProps> = ({
       },
       {
         targetId: 'DEMO-T03',
-        rangeM: 2.8 + 0.04 * Math.sin(t * 0.1),
-        azimuthDeg: (225 + 1.5 * Math.sin(t * 0.1) + 360) % 360,
-        radialVelocityMps: 0.01,
-        snrDb: 22.8,
-        motionState: 'STATIONARY',
+        rangeM: 6.5 + 0.25 * Math.sin(t * 0.2),
+        azimuthDeg: (210 + 6 * Math.sin(t * 0.25) + 360) % 360,
+        radialVelocityMps: 0.08 * Math.cos(t * 0.2),
+        snrDb: 21.4,
+        motionState: 'MOTION_DETECTED',
         classification: 'UNKNOWN / DEMO',
         classificationConfidence: null,
         lastSeen: Date.now(),
@@ -169,10 +169,10 @@ export const TacticalRadarScope: React.FC<TacticalRadarScopeProps> = ({
       },
       {
         targetId: 'DEMO-T04',
-        rangeM: 6.0 - 0.4 * Math.sin(t * 0.35),
-        azimuthDeg: (312 - 14 * Math.cos(t * 0.28) + 360) % 360,
-        radialVelocityMps: -0.16 * Math.cos(t * 0.35),
-        snrDb: 16.5,
+        rangeM: 4.2 + 0.25 * Math.cos(t * 0.35),
+        azimuthDeg: (300 + 8 * Math.cos(t * 0.28) + 360) % 360,
+        radialVelocityMps: -0.11 * Math.sin(t * 0.35),
+        snrDb: 17.8,
         motionState: 'MOTION_DETECTED',
         classification: 'UNKNOWN / DEMO',
         classificationConfidence: null,
@@ -182,11 +182,11 @@ export const TacticalRadarScope: React.FC<TacticalRadarScopeProps> = ({
     ];
   }, [isDemoMode, demoElapsedSec]);
 
-  // Combined candidate targets list (Demo targets appended ONLY when demo mode active)
+  // Combined candidate targets list (Isolated: demoTargets when demoMode, realTargets otherwise)
   const candidateTargets: (RadarTarget | DemoRadarTarget)[] = useMemo(() => {
-    if (!isDemoMode) return realTargets;
-    return [...realTargets, ...demoTargets];
-  }, [isDemoMode, realTargets, demoTargets]);
+    if (isDemoMode) return demoTargets;
+    return realTargets;
+  }, [isDemoMode, demoTargets, realTargets]);
 
   // Selected target or default first target
   const activeTarget = useMemo(() => {
@@ -320,15 +320,43 @@ export const TacticalRadarScope: React.FC<TacticalRadarScopeProps> = ({
         {/* ========================================================================= */}
         <div className="lg:col-span-7 bg-[#020508] border border-[#16222F] rounded p-3 relative flex flex-col items-center select-none overflow-hidden">
           {/* Top Technical Metadata Header */}
-          <div className="w-full flex items-center justify-between text-[10px] text-[#0EA5E9] border-b border-[#16222F] pb-1.5 mb-2 font-mono">
-            <div className="flex items-center gap-1.5">
-              <Compass className="w-3.5 h-3.5 text-[#38BDF8]" />
-              <span className="font-bold tracking-wider text-[#E2E8F0]">PPI SCOPE // CONSOLE 01</span>
+          <div className="w-full flex items-center justify-between text-[10px] text-[#0EA5E9] border-b border-[#16222F] pb-2 mb-2 font-mono">
+            <div className="flex items-center gap-2 min-w-0">
+              <Compass className="w-3.5 h-3.5 text-[#38BDF8] shrink-0" />
+              <span className="font-bold tracking-wider text-[#E2E8F0] whitespace-nowrap">PPI SCOPE // CONSOLE 01</span>
+              {isDemoMode && (
+                <span className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#2A1705] text-[#F59E0B] border border-[#D97706]/60 text-[9px] font-bold tracking-wide whitespace-nowrap">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B] animate-ping" />
+                  DEMO MODE — SIMULATED TARGETS
+                </span>
+              )}
             </div>
-            <div className="flex items-center gap-3 text-[9px] text-[#8A8A8A]">
-              <span>RNG MAX: <strong className="text-[#38BDF8]">{maxRangeMeters.toFixed(1)}m</strong></span>
-              <span>MODE: <strong className="text-[#38BDF8]">FMCW/PPI</strong></span>
-              <span>GRID: <strong className="text-[#38BDF8]">AZ-POLAR</strong></span>
+
+            <div className="flex items-center gap-2.5 shrink-0">
+              <div className="hidden md:flex items-center gap-2 text-[9px] text-[#8A8A8A]">
+                <span>RNG: <strong className="text-[#38BDF8]">{maxRangeMeters.toFixed(1)}m</strong></span>
+              </div>
+              {/* CLEARLY VISIBLE COMPACT BUTTON AT TOP-RIGHT OF RADAR PPI CONSOLE */}
+              <button
+                type="button"
+                id="radar-demo-mode-toggle-ppi"
+                onClick={() => {
+                  setIsDemoMode((prev) => {
+                    const next = !prev;
+                    if (!next) setSelectedTargetId(null);
+                    return next;
+                  });
+                }}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-bold tracking-wider uppercase transition-all border cursor-pointer ${
+                  isDemoMode
+                    ? 'bg-[#F59E0B] text-[#000000] border-[#F59E0B] hover:bg-[#F59E0B]/90 shadow-[0_0_10px_rgba(245,158,11,0.6)]'
+                    : 'bg-[#1E293B] text-[#FFFFFF] border-[#38BDF8]/60 hover:bg-[#38BDF8] hover:text-[#000000] hover:border-[#38BDF8]'
+                }`}
+                title="Toggle Demo Mode"
+              >
+                <Radio className="w-3.5 h-3.5" />
+                <span>DEMO MODE: {isDemoMode ? 'ON' : 'OFF'}</span>
+              </button>
             </div>
           </div>
 
@@ -513,28 +541,6 @@ export const TacticalRadarScope: React.FC<TacticalRadarScopeProps> = ({
                   </text>
                 );
               })}
-
-              {/* ============================================================= */}
-              {/* ROTATING RADAR SWEEP LINE (VISUALIZATION ONLY - Section 3)     */}
-              {/* Does NOT create targets, detections, or alter any telemetry.   */}
-              {/* ============================================================= */}
-              <g className="animate-radar-sweep pointer-events-none">
-                {/* Trailing Phosphor Wedge (30 deg sector) */}
-                <path
-                  d={`M ${center} ${center} L ${center} ${center - radius} A ${radius} ${radius} 0 0 0 ${center - radius * 0.5} ${center - radius * 0.866} Z`}
-                  fill="url(#sweepTrailGrad)"
-                />
-                {/* Crisp Rotating Sweep Arm */}
-                <line
-                  x1={center}
-                  y1={center}
-                  x2={center}
-                  y2={center - radius}
-                  stroke="#38BDF8"
-                  strokeWidth="1.6"
-                  strokeOpacity="0.85"
-                />
-              </g>
 
               {/* Transceiver Center Crosshair (TX/RX Radar Origin) */}
               <circle cx={center} cy={center} r={2.5} fill="#38BDF8" />
@@ -726,16 +732,16 @@ export const TacticalRadarScope: React.FC<TacticalRadarScopeProps> = ({
                       <circle
                         cx={tgtX}
                         cy={tgtY}
-                        r={isSweepHit ? 9 : 8}
+                        r={isSweepHit ? 10 : 8}
                         fill="none"
                         stroke={isSweepHit ? '#F59E0B' : '#22C55E'}
-                        strokeWidth={isSelected ? '1.4' : '1'}
+                        strokeWidth={isSelected ? '1.8' : '1.2'}
                         strokeOpacity={isSweepHit ? 0.95 : 0.75}
                       />
                       <circle
                         cx={tgtX}
                         cy={tgtY}
-                        r={isSweepHit ? 4.2 : 3.5}
+                        r={isSweepHit ? 5.5 : 3.8}
                         fill={isSweepHit ? '#FDE047' : '#22C55E'}
                         filter="url(#blipGlow)"
                       />
@@ -745,24 +751,78 @@ export const TacticalRadarScope: React.FC<TacticalRadarScopeProps> = ({
                         <rect
                           x="0"
                           y="0"
-                          width="78"
+                          width="76"
                           height="24"
                           fill="#040A0F"
-                          fillOpacity="0.92"
-                          stroke={isSweepHit ? '#D97706' : '#78350F'}
+                          fillOpacity="0.95"
+                          stroke={isSweepHit ? '#F59E0B' : '#166534'}
                           strokeWidth="1"
-                          rx="1"
+                          rx="2"
                         />
-                        <text x="4" y="9" fill="#F59E0B" fontSize="7.5" fontWeight="bold" fontFamily="monospace">
-                          {target.targetId} [DEMO]
+                        <text x="5" y="10" fill={isSweepHit ? '#FDE047' : '#4ADE80'} fontSize="8" fontWeight="bold" fontFamily="monospace">
+                          {target.targetId}
                         </text>
-                        <text x="4" y="18" fill="#FCD34D" fontSize="7" fontFamily="monospace">
+                        <text x="5" y="19" fill="#94A3B8" fontSize="7" fontFamily="monospace">
                           {target.rangeM.toFixed(2)}m | {target.azimuthDeg.toFixed(0)}°
                         </text>
                       </g>
                     </g>
                   );
                 })}
+
+              {/* ============================================================= */}
+              {/* ROTATING RADAR SWEEP LINE (VISUALIZATION ONLY - Section 3)     */}
+              {/* Rendered above targets with pointer-events-none               */}
+              {/* ============================================================= */}
+              <g
+                transform={isDemoMode ? `rotate(${((Date.now() % 4000) / 4000) * 360} ${center} ${center})` : undefined}
+                className={!isDemoMode ? 'animate-radar-sweep pointer-events-none' : 'pointer-events-none'}
+              >
+                {/* Trailing Phosphor Wedge (30 deg sector) */}
+                <path
+                  d={`M ${center} ${center} L ${center} ${center - radius} A ${radius} ${radius} 0 0 0 ${center - radius * 0.5} ${center - radius * 0.866} Z`}
+                  fill="url(#sweepTrailGrad)"
+                />
+                {/* Crisp Rotating Sweep Arm */}
+                <line
+                  x1={center}
+                  y1={center}
+                  x2={center}
+                  y2={center - radius}
+                  stroke="#38BDF8"
+                  strokeWidth="1.6"
+                  strokeOpacity="0.85"
+                />
+              </g>
+
+              {/* DEMO MODE — SIMULATED TARGETS scope watermark */}
+              {isDemoMode && (
+                <g transform={`translate(${center}, ${center + radius - 16})`}>
+                  <rect
+                    x="-85"
+                    y="-9"
+                    width="170"
+                    height="18"
+                    fill="#1A0D00"
+                    fillOpacity="0.85"
+                    stroke="#D97706"
+                    strokeWidth="1"
+                    rx="2"
+                  />
+                  <text
+                    x="0"
+                    y="3.5"
+                    fill="#F59E0B"
+                    fontSize="8"
+                    fontWeight="bold"
+                    fontFamily="monospace"
+                    textAnchor="middle"
+                    letterSpacing="0.5"
+                  >
+                    DEMO MODE — SIMULATED TARGETS
+                  </text>
+                </g>
+              )}
 
               {/* Empty State Banner in Scope (When no targets or disconnected) */}
               {realTargets.length === 0 && !isDemoMode && (
@@ -923,7 +983,9 @@ export const TacticalRadarScope: React.FC<TacticalRadarScopeProps> = ({
                   <div className={`flex items-center justify-between pb-1.5 border-b ${isDemo ? 'border-[#3D1E07]' : 'border-[#132A1C]'}`}>
                     <div className="flex items-center gap-1.5">
                       <span className={`w-2 h-2 rounded-full animate-pulse ${isDemo ? 'bg-[#F59E0B]' : 'bg-[#22C55E]'}`} />
-                      <span className="text-xs font-bold text-[#FFFFFF]">{activeTarget.targetId}</span>
+                      <span className="text-xs font-bold text-[#FFFFFF]">
+                        {isDemo ? `TARGET ID: ${activeTarget.targetId}` : activeTarget.targetId}
+                      </span>
                       <span
                         className={`text-[9px] px-1 rounded border ${
                           isDemo
@@ -941,7 +1003,7 @@ export const TacticalRadarScope: React.FC<TacticalRadarScopeProps> = ({
 
                   {/* Classification Display */}
                   <div className={`p-2 rounded bg-[#020609] border space-y-1 ${isDemo ? 'border-[#3D1E07]' : 'border-[#1A2E22]'}`}>
-                    <div className="text-[9px] text-[#8A8A8A] uppercase">Target Classification:</div>
+                    <div className="text-[9px] text-[#8A8A8A] uppercase">CLASSIFICATION:</div>
                     <div className="flex items-center justify-between">
                       <div className="text-xs font-bold">
                         {isDemo ? (
@@ -976,71 +1038,80 @@ export const TacticalRadarScope: React.FC<TacticalRadarScopeProps> = ({
                   <div className="grid grid-cols-2 gap-2 text-[10px]">
                     {/* Range */}
                     <div className="p-1.5 rounded bg-[#020508] border border-[#152332]">
-                      <div className="text-[9px] text-[#8A8A8A] uppercase">Range:</div>
+                      <div className="text-[9px] text-[#8A8A8A] uppercase">RANGE:</div>
                       <div className="text-sm font-bold text-[#FFFFFF]">
-                        {formatNum(activeTarget.rangeM, ' m', 2)}{' '}
-                        {isDemo && <span className="text-[9px] text-[#F59E0B] font-bold">DEMO</span>}
+                        {isDemo ? (
+                          <span className="text-[#F59E0B]">DEMO</span>
+                        ) : (
+                          formatNum(activeTarget.rangeM, ' m', 2)
+                        )}
                       </div>
-                      <div className="text-[8px] text-[#666666]">{isDemo ? 'DEMO RANGE (SIMULATED)' : 'RADIAL DISTANCE'}</div>
+                      <div className="text-[8px] text-[#666666]">{isDemo ? `SIMULATED (${formatNum(activeTarget.rangeM, ' m', 2)})` : 'RADIAL DISTANCE'}</div>
                     </div>
 
                     {/* Radial Velocity */}
                     <div className="p-1.5 rounded bg-[#020508] border border-[#152332]">
-                      <div className="text-[9px] text-[#8A8A8A] uppercase">Radial Velocity:</div>
+                      <div className="text-[9px] text-[#8A8A8A] uppercase">VELOCITY:</div>
                       <div className="text-sm font-bold text-[#FFFFFF]">
-                        {formatNum(activeTarget.radialVelocityMps, ' m/s', 2)}{' '}
-                        {isDemo && <span className="text-[9px] text-[#F59E0B] font-bold">DEMO</span>}
+                        {isDemo ? (
+                          <span className="text-[#F59E0B]">DEMO</span>
+                        ) : (
+                          formatNum(activeTarget.radialVelocityMps, ' m/s', 2)
+                        )}
                       </div>
-                      <div className="text-[8px] text-[#666666]">{isDemo ? 'DEMO DOPPLER (SIMULATED)' : 'DOPPLER VELOCITY'}</div>
+                      <div className="text-[8px] text-[#666666]">{isDemo ? `SIMULATED (${formatNum(activeTarget.radialVelocityMps, ' m/s', 2)})` : 'DOPPLER VELOCITY'}</div>
                     </div>
 
                     {/* Bearing / Azimuth */}
                     <div className="p-1.5 rounded bg-[#020508] border border-[#152332]">
-                      <div className="text-[9px] text-[#8A8A8A] uppercase">Bearing / Azimuth:</div>
+                      <div className="text-[9px] text-[#8A8A8A] uppercase">BEARING:</div>
                       <div className="text-xs font-bold text-[#FFFFFF]">
-                        {activeTarget.azimuthDeg !== null && activeTarget.azimuthDeg !== undefined ? (
-                          <>
-                            {activeTarget.azimuthDeg.toFixed(1)}°{' '}
-                            {isDemo && <span className="text-[9px] text-[#F59E0B] font-bold">DEMO</span>}
-                          </>
+                        {isDemo ? (
+                          <span className="text-[#F59E0B]">DEMO</span>
+                        ) : activeTarget.azimuthDeg !== null && activeTarget.azimuthDeg !== undefined ? (
+                          `${activeTarget.azimuthDeg.toFixed(1)}°`
                         ) : (
                           <span className="text-[#8A8A8A]">NOT AVAILABLE (1D)</span>
                         )}
                       </div>
                       <div className="text-[8px] text-[#666666]">
-                        {isDemo ? 'DEMO BEARING (SIMULATED)' : activeTarget.azimuthDeg !== null ? 'BEARING ANGLE' : 'ISORANGE GATE ACTIVE'}
+                        {isDemo ? `SIMULATED (${activeTarget.azimuthDeg.toFixed(1)}°)` : activeTarget.azimuthDeg !== null ? 'BEARING ANGLE' : 'ISORANGE GATE ACTIVE'}
                       </div>
                     </div>
 
                     {/* Motion State */}
                     <div className="p-1.5 rounded bg-[#020508] border border-[#152332]">
-                      <div className="text-[9px] text-[#8A8A8A] uppercase">Motion State:</div>
+                      <div className="text-[9px] text-[#8A8A8A] uppercase">MOTION STATE:</div>
                       <div className="text-xs font-bold truncate">
-                        {activeTarget.motionState === 'MOTION_DETECTED' ? (
+                        {isDemo ? (
+                          <span className="text-[#F59E0B]">DEMO</span>
+                        ) : activeTarget.motionState === 'MOTION_DETECTED' ? (
                           <span className="text-[#22C55E]">MOTION DETECTED</span>
                         ) : activeTarget.motionState === 'STATIONARY' ? (
                           <span className="text-[#38BDF8]">STATIONARY</span>
                         ) : (
                           <span className="text-[#8A8A8A]">{activeTarget.motionState ?? '--'}</span>
                         )}
-                        {isDemo && <span className="text-[9px] text-[#F59E0B] font-bold ml-1">DEMO</span>}
                       </div>
-                      <div className="text-[8px] text-[#666666]">{isDemo ? 'DEMO DYNAMICS' : 'DYNAMICS'}</div>
+                      <div className="text-[8px] text-[#666666]">{isDemo ? 'SIMULATED MOTION' : 'DYNAMICS'}</div>
                     </div>
 
                     {/* SNR (dB) */}
                     <div className="p-1.5 rounded bg-[#020508] border border-[#152332]">
                       <div className="text-[9px] text-[#8A8A8A] uppercase">SNR:</div>
                       <div className="text-xs font-bold text-[#FFFFFF]">
-                        {formatNum(activeTarget.snrDb, ' dB', 1)}{' '}
-                        {isDemo && <span className="text-[9px] text-[#F59E0B] font-bold">DEMO</span>}
+                        {isDemo ? (
+                          <span className="text-[#F59E0B]">DEMO</span>
+                        ) : (
+                          formatNum(activeTarget.snrDb, ' dB', 1)
+                        )}
                       </div>
-                      <div className="text-[8px] text-[#666666]">{isDemo ? 'DEMO SNR' : 'SIGNAL QUALITY'}</div>
+                      <div className="text-[8px] text-[#666666]">{isDemo ? `SIMULATED (${formatNum(activeTarget.snrDb, ' dB', 1)})` : 'SIGNAL QUALITY'}</div>
                     </div>
 
                     {/* Tracking State */}
                     <div className="p-1.5 rounded bg-[#020508] border border-[#152332]">
-                      <div className="text-[9px] text-[#8A8A8A] uppercase">Track State:</div>
+                      <div className="text-[9px] text-[#8A8A8A] uppercase">TRACK STATE:</div>
                       <div className={`text-xs font-bold ${isDemo ? 'text-[#F59E0B]' : 'text-[#22C55E]'}`}>
                         {isDemo ? 'DEMO' : 'ACQUIRED'}
                       </div>

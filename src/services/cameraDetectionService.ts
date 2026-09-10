@@ -308,6 +308,8 @@ class RealCameraDetectionService {
    */
   public markComplete(cameraId = this.currentTelemetry.cameraId): void {
     const session = this.getOrCreateSession(cameraId);
+    // Explicitly synchronize globalCount to exact unique identity registry count
+    session.globalCount = session.registeredPersons.size;
     if (session.accumulatedPanDeg >= 180) {
       session.state = 'COMPLETE';
       session.coverageStatus = 'SUFFICIENT';
@@ -752,7 +754,7 @@ class RealCameraDetectionService {
       const session = this.getOrCreateSession(this.currentTelemetry.cameraId);
 
       // Accumulate estimated horizontal heading sweep span
-      if (Math.abs(dx) > 0.4 && (session.state === 'COUNTING' || session.state === 'INSUFFICIENT_COVERAGE')) {
+      if (Math.abs(dx) > 0.4 && (session.state === 'COUNTING' || session.state === 'INSUFFICIENT_COVERAGE' || session.state === 'COMPLETE')) {
         const deltaDeg = (dx / width) * 60; // Approximate 60-degree horizontal field of view
         session.currentHeadingDeg += deltaDeg;
         if (session.currentHeadingDeg < session.minHeadingDeg) session.minHeadingDeg = session.currentHeadingDeg;
@@ -1191,7 +1193,7 @@ class RealCameraDetectionService {
 
       // If not matched, evaluate whether to register a genuinely new unique person
       if (matchedGlobalId === null) {
-        if (session.state === 'COUNTING' || session.state === 'INSUFFICIENT_COVERAGE') {
+        if (session.state === 'COUNTING' || session.state === 'INSUFFICIENT_COVERAGE' || session.state === 'COMPLETE') {
           if (this.reIdModelStatus === 'READY' && candEmbedding && candQuality >= 0.45) {
             const newId = session.nextGlobalId++;
             matchedGlobalId = newId;

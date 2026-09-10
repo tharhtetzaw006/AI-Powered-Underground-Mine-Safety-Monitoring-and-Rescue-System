@@ -185,6 +185,7 @@ export const CameraSection: React.FC<CameraSectionProps> = ({ id }) => {
   const totalRegistered = isStreaming ? (cameraTelemetry.totalRegisteredInSession || 0) : '--';
   const coverageDeg = isStreaming ? (cameraTelemetry.coverageEstimateDeg ?? 0) : '--';
   const coverageStatus = isStreaming ? (cameraTelemetry.coverageStatus || 'UNKNOWN') : 'NO_DATA';
+  const isFinalized = countStatus === 'COMPLETE' || countStatus === 'INSUFFICIENT_COVERAGE';
 
   const fpsText = cameraTelemetry.frameRate ? `${cameraTelemetry.frameRate.toFixed(1)} FPS` : '--';
   const resText = cameraTelemetry.resolution
@@ -265,7 +266,11 @@ export const CameraSection: React.FC<CameraSectionProps> = ({ id }) => {
               >
                 <div className="flex items-center justify-between">
                   <span className="text-[9px] uppercase tracking-wider font-bold text-[#8A8A8A]">
-                    OBSERVED UNIQUE
+                    {isFinalized
+                      ? countStatus === 'COMPLETE'
+                        ? 'VERIFIED TOTAL'
+                        : 'FINALIZED TOTAL'
+                      : 'OBSERVED UNIQUE'}
                   </span>
                   <Camera className="w-3.5 h-3.5 text-[#38BDF8]" />
                 </div>
@@ -273,12 +278,24 @@ export const CameraSection: React.FC<CameraSectionProps> = ({ id }) => {
                   {globalCount}
                   {isStreaming && typeof globalCount === 'number' && (
                     <span className="text-[9px] font-normal ml-1.5 opacity-80 uppercase">
-                      DEEP RE-ID
+                      {isFinalized
+                        ? countStatus === 'COMPLETE'
+                          ? 'VERIFIED SWEEP'
+                          : 'OBSERVED COUNT'
+                        : 'DEEP RE-ID'}
                     </span>
                   )}
                 </div>
                 <div className="text-[9px] text-[#8A8A8A] mt-0.5 truncate">
-                  REGISTRY: {cameraTelemetry.totalGlobalPeople || totalRegistered} (ACTIVE: {cameraTelemetry.activeGlobalPeople || 0})
+                  {isFinalized ? (
+                    <span>
+                      OBSERVED UNIQUE: <strong className="text-[#FFFFFF]">{cameraTelemetry.totalGlobalPeople || totalRegistered}</strong> (ACTIVE: {cameraTelemetry.activeGlobalPeople || 0})
+                    </span>
+                  ) : (
+                    <span>
+                      REGISTRY: {cameraTelemetry.totalGlobalPeople || totalRegistered} (ACTIVE: {cameraTelemetry.activeGlobalPeople || 0})
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -433,6 +450,17 @@ export const CameraSection: React.FC<CameraSectionProps> = ({ id }) => {
                 >
                   {countStatus}
                 </span>
+
+                {isFinalized && typeof globalCount === 'number' && (
+                  <div className="flex items-center gap-1.5 ml-2 pl-2 border-l border-[#222222]">
+                    <span className="text-[10px] text-[#8A8A8A] uppercase font-bold">
+                      {countStatus === 'COMPLETE' ? 'VERIFIED TOTAL:' : 'FINALIZED TOTAL:'}
+                    </span>
+                    <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-[#10B981]/20 text-[#10B981] border border-[#10B981]/40">
+                      {globalCount}
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-1.5">
@@ -491,15 +519,26 @@ export const CameraSection: React.FC<CameraSectionProps> = ({ id }) => {
                 )}
 
                 {(countStatus === 'COMPLETE' || countStatus === 'INSUFFICIENT_COVERAGE') && (
-                  <button
-                    type="button"
-                    onClick={() => startCounting()}
-                    disabled={!isStreaming}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#10B981] text-[#000000] font-bold text-xs hover:bg-[#10B981]/90 disabled:opacity-40 transition-colors"
-                  >
-                    <Play className="w-3 h-3" />
-                    <span>START NEW COUNT</span>
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => markComplete()}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#38BDF8] text-[#000000] font-bold text-xs hover:bg-[#38BDF8]/90 transition-colors"
+                      title="Update/re-finalize count from current registry"
+                    >
+                      <CheckCircle2 className="w-3 h-3" />
+                      <span>FINALIZE COUNT</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => startCounting()}
+                      disabled={!isStreaming}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#10B981] text-[#000000] font-bold text-xs hover:bg-[#10B981]/90 disabled:opacity-40 transition-colors"
+                    >
+                      <Play className="w-3 h-3" />
+                      <span>START NEW COUNT</span>
+                    </button>
+                  </>
                 )}
 
                 <button
