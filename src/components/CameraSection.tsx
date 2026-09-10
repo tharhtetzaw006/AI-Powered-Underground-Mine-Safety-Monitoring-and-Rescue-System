@@ -514,22 +514,6 @@ export const CameraSection: React.FC<CameraSectionProps> = ({ id }) => {
               </div>
             </div>
 
-            {/* Coverage Status Warning Alert */}
-            {(countStatus === 'INSUFFICIENT_COVERAGE' ||
-              (countStatus === 'COUNTING' && coverageStatus === 'INSUFFICIENT' && typeof coverageDeg === 'number' && coverageDeg < 60)) && (
-              <div className="p-2 rounded bg-[#241306] border border-[#78350F] text-xs text-[#F59E0B] flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 shrink-0 text-[#F59E0B]" />
-                  <span>
-                    <strong>INSUFFICIENT SWEEP:</strong> Sweep camera across the room for visual overlap. Note: 2D monocular motion estimation cannot prove complete room coverage or detect occluded occupants.
-                  </span>
-                </div>
-                <span className="text-[10px] text-[#F59E0B] font-bold shrink-0">
-                  {coverageDeg}° / 180° MIN
-                </span>
-              </div>
-            )}
-
             {/* Video Viewport & Detection Canvas */}
             <div className="relative aspect-video w-full rounded border border-[#222222] bg-[#000000] overflow-hidden flex items-center justify-center">
               {/* Actual HTML5 Video Element for real camera stream */}
