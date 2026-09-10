@@ -32,7 +32,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectSection,
   alertCount = 0,
 }) => {
-  const { nodes } = useLiveData();
+  const { nodes, fastApiState } = useLiveData();
   const onlineCount = nodes.filter((n) => n.status === 'ONLINE').length;
 
   const navItems = [
@@ -50,6 +50,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'detection' as const,
       label: 'Detection',
       icon: Crosshair,
+      badge:
+        fastApiState.latestPrediction?.status === 'PERSON DETECTED'
+          ? 'PERSON'
+          : fastApiState.backendOnline
+          ? 'ONLINE'
+          : undefined,
+      badgeColor:
+        fastApiState.latestPrediction?.status === 'PERSON DETECTED'
+          ? 'bg-[#072412] text-[#22C55E] border-[#22C55E]/40'
+          : 'bg-[#0C1E2B] text-[#38BDF8] border-[#38BDF8]/40',
     },
     {
       id: 'nodes' as const,

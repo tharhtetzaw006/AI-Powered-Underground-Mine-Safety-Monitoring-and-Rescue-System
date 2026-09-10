@@ -22,6 +22,8 @@ import {
 import { liveTelemetryService, ConnectionStatus } from '../services/telemetryService.ts';
 import { realTelemetryProcessor, RealTelemetryProcessor } from '../services/realTelemetryProcessor.ts';
 import { DerivedSensorMetrics } from '../types/signalProcessing.ts';
+import { fastApiDetectionService } from '../services/fastApiDetectionService.ts';
+import { FastApiState, FastApiDetectionHistoryRecord } from '../types/fastApiDetection.ts';
 
 export interface LiveDataContextValue {
   connectionStatus: ConnectionStatus;
@@ -42,6 +44,10 @@ export interface LiveDataContextValue {
   gatewayStats: GatewayStats | null;
   lastUpdateTime: number | null;
   realTelemetryProcessor: RealTelemetryProcessor;
+  fastApiState: FastApiState;
+  fastApiHistory: FastApiDetectionHistoryRecord[];
+  refreshFastApi: () => Promise<void>;
+  reconnectFastApiWs: () => void;
   sendManualPacket: (packet: unknown) => Promise<{ success: boolean; message: string }>;
   refresh: () => Promise<void>;
   refreshDetection: () => Promise<void>;
@@ -63,6 +69,11 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [systemEvents, setSystemEvents] = useState<SystemEventLog[]>([]);
   const [gatewayStats, setGatewayStats] = useState<GatewayStats | null>(null);
   const [lastUpdateTime, setLastUpdateTime] = useState<number | null>(null);
+
+  // Real remote FastAPI Human Detection state
+  const [fastApiState, setFastApiState] = useState<FastApiState>(fastApiDetectionService.getState());
+  const [fastApiHistory, setFastApiHistory] = useState<FastApiDetectionHistoryRecord[]>(fastApiDetectionService.getHistory());
+
 
   // Auto-select first active node if activeNodeId is null or becomes invalid
   useEffect(() => {
@@ -160,6 +171,18 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (status) setDetectionStatus(status);
     }).catch(() => {});
 
+    // Start FastAPI remote Human Detection service (http://192.168.1.6:8000 & ws://192.168.1.6:8000/ws)
+    fastApiDetectionService.start();
+
+    const unsubFastApiState = fastApiDetectionService.onStateChange((state) => {
+      setFastApiState(state);
+      setFastApiHistory(fastApiDetectionService.getHistory());
+    });
+
+    const unsubFastApiPred = fastApiDetectionService.onPrediction(() => {
+      setFastApiHistory(fastApiDetectionService.getHistory());
+    });
+
     return () => {
       unsubConnection();
       unsubNodes();
@@ -167,8 +190,20 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       unsubStats();
       unsubEvents();
       unsubDetection();
+      unsubFastApiState();
+      unsubFastApiPred();
+      fastApiDetectionService.stop();
       liveTelemetryService.disconnect();
     };
+  }, []);
+
+  const refreshFastApi = useCallback(async () => {
+    await fastApiDetectionService.checkStatus(true);
+    await fastApiDetectionService.fetchLatestPrediction();
+  }, []);
+
+  const reconnectFastApiWs = useCallback(() => {
+    fastApiDetectionService.connectWs(true);
   }, []);
 
   const refreshDetection = useCallback(async () => {
@@ -176,13 +211,14 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const [status, history] = await Promise.all([
         liveTelemetryService.fetchDetectionStatus(),
         liveTelemetryService.fetchDetectionHistory(activeNodeId || undefined),
+        refreshFastApi(),
       ]);
       if (status) setDetectionStatus(status);
       if (history) setDetectionHistory(history);
     } catch {
       // Ignore network errors during refresh
     }
-  }, [activeNodeId]);
+  }, [activeNodeId, refreshFastApi]);
 
   const refresh = useCallback(async () => {
     try {
@@ -243,6 +279,10 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     gatewayStats,
     lastUpdateTime,
     realTelemetryProcessor,
+    fastApiState,
+    fastApiHistory,
+    refreshFastApi,
+    reconnectFastApiWs,
     sendManualPacket,
     refresh,
     refreshDetection,
@@ -263,6 +303,10 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     systemEvents,
     gatewayStats,
     lastUpdateTime,
+    fastApiState,
+    fastApiHistory,
+    refreshFastApi,
+    reconnectFastApiWs,
     sendManualPacket,
     refresh,
     refreshDetection,

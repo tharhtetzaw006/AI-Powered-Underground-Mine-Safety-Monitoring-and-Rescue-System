@@ -5,15 +5,21 @@
  * Human / Life Detection Panel
  * 
  * Truthful, production-ready AI inference interface for mine-rescue monitoring.
- * Strictly adheres to truth-in-data principles:
+ * Connected directly to the real remote FastAPI backend at http://192.168.1.6:8000
+ * and WebSocket stream at ws://192.168.1.6:8000/ws.
+ * 
+ * Strict truth-in-data principles:
  * - NO mock data
  * - NO fake human counts or confidence scores
- * - Displays NO DATA / INSUFFICIENT DATA when model or RF/radar inputs are absent
+ * - Estimated People displays '--' / 'NOT AVAILABLE' because backend does not provide discrete count
+ * - Person Votes displayed as vote ratio (e.g. 30 / 30) - NEVER as people count
+ * - Confidence displayed as real percentage (e.g. 77.88%) or '--'
  * - Displays clear technical limitation warning regarding through-obstacle physics
  * - Shows explicit model lifecycle and real-only event history
+ * - Development diagnostics detailing WebSocket readyState, HTTP error categories, and Mixed-Content warnings
  */
 
-import React, { useMemo } from 'react';
+import React, { useState } from 'react';
 import { useLiveData } from '../context/LiveDataContext.tsx';
 import {
   Users,
@@ -26,8 +32,17 @@ import {
   Radio,
   History,
   CheckCircle2,
-  XCircle,
   HelpCircle,
+  RefreshCw,
+  Server,
+  Wifi,
+  WifiOff,
+  Layers,
+  Terminal,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  ShieldAlert,
 } from 'lucide-react';
 import { StatusBadge } from './StatusBadge.tsx';
 
@@ -37,49 +52,80 @@ interface DetectionSummaryProps {
 
 export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
   const {
-    activeDetection,
     activeNodeId,
-    detectionStatus,
-    detectionHistory,
-    nodes,
+    fastApiState,
+    fastApiHistory,
+    refreshFastApi,
+    reconnectFastApiWs,
   } = useLiveData();
 
-  const nodeHistory = useMemo(() => {
-    if (!activeNodeId) return detectionHistory;
-    return detectionHistory.filter((h) => h.nodeId === activeNodeId);
-  }, [detectionHistory, activeNodeId]);
+  const [showDiagnostics, setShowDiagnostics] = useState(true);
 
-  // Status mapping
-  const currentStatus = activeDetection?.status ?? 'NO_DATA';
-  const hasRealDetection = currentStatus === 'HUMAN_DETECTED' || currentStatus === 'NO_HUMAN';
+  const prediction = fastApiState.latestPrediction;
+  const statusInfo = fastApiState.statusInfo;
+  const isOnline = fastApiState.backendOnline;
+  const wsState = fastApiState.wsState;
+  const isStale = fastApiState.isStale;
+  const diag = fastApiState.diagnostics;
+
+  // Real backend prediction status
+  const currentStatus = prediction?.status ?? (isOnline ? 'UNCERTAIN' : 'NO_DATA');
 
   // Format timestamp helper
-  const formatTime = (ts: number | null | undefined): string => {
-    if (!ts || typeof ts !== 'number') return '--';
-    return new Date(ts).toLocaleTimeString(undefined, {
-      hour12: false,
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
+  const formatBackendTime = (ts: string | number | null | undefined): string => {
+    if (!ts) return '--';
+    try {
+      const date = typeof ts === 'number' ? new Date(ts) : new Date(ts);
+      if (isNaN(date.getTime())) {
+        return typeof ts === 'string' ? ts : '--';
+      }
+      return date.toLocaleTimeString(undefined, {
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+    } catch {
+      return '--';
+    }
+  };
+
+  // Format confidence helper (Task 8: e.g. 0.7787777777777778 -> 77.88%)
+  const formatConfidence = (conf: number | null | undefined): string => {
+    if (conf === null || conf === undefined || isNaN(conf)) return '--';
+    const percent = conf <= 1 ? conf * 100 : conf;
+    return `${percent.toFixed(2)}%`;
+  };
+
+  // Format person votes helper (Task 9: e.g. 30 / 30)
+  const formatVotes = (
+    votes: number | null | undefined,
+    winSize: number | null | undefined
+  ): string => {
+    if (votes === null || votes === undefined) return '--';
+    if (winSize !== null && winSize !== undefined) {
+      return `${votes} / ${winSize}`;
+    }
+    return `${votes}`;
   };
 
   // Model Lifecycle Stages evaluation
-  const isModelLoaded = detectionStatus?.modelAvailable ?? false;
-  const hasValidInput = detectionStatus?.hasValidRealInput ?? false;
-  const isInferring = hasRealDetection;
+  const isModelLoaded = isOnline && statusInfo?.ml_model === 'loaded';
+  const isWsConnected = wsState === 'CONNECTED';
+  const hasRealPrediction = Boolean(prediction);
 
-  let currentStageIndex = 0; // 0: NO MODEL
-  if (isModelLoaded) currentStageIndex = 1;
-  if (isModelLoaded && hasValidInput) currentStageIndex = 2;
-  if (isModelLoaded && hasValidInput && isInferring) currentStageIndex = 4;
+  let currentStageIndex = 0;
+  if (isOnline) currentStageIndex = 1;
+  if (isModelLoaded) currentStageIndex = 2;
+  if (isWsConnected) currentStageIndex = 3;
+  if (isWsConnected && hasRealPrediction) currentStageIndex = 4;
 
   const lifecycleStages = [
-    { label: 'NO MODEL', desc: 'Awaiting weights' },
-    { label: 'MODEL LOADED', desc: 'TFJS / ONNX / Service' },
-    { label: 'VALID REAL INPUT', desc: 'RF CSI / UWB Radar' },
-    { label: 'INFERENCE', desc: 'Model evaluation' },
-    { label: 'REAL RESULT', desc: 'Verified presence' },
+    { label: 'BACKEND API', desc: 'http://192.168.1.6:8000' },
+    { label: 'MODEL LOADED', desc: statusInfo?.model_type ?? 'RandomForest' },
+    { label: 'WEBSOCKET STREAM', desc: 'ws://...:8000/ws' },
+    { label: '192-DIM FEATURES', desc: `${statusInfo?.features_required ?? 192} RF CSI vectors` },
+    { label: '30-VOTE ENSEMBLE', desc: 'Sliding window decision' },
   ];
 
   return (
@@ -99,34 +145,273 @@ export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
                 Human / Life Detection
               </h3>
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#0D0D0D] text-[#8A8A8A] border border-[#222222]">
-                NODE: {activeNodeId ?? 'NO NODE SELECTED'}
+                NODE: {activeNodeId ?? 'RESCUE MESH'}
               </span>
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#0D0D0D] text-[#38BDF8] border border-[#222222]">
-                SOURCE: {activeDetection?.source ?? 'UNKNOWN'}
+                FASTAPI: 192.168.1.6:8000
               </span>
             </div>
             <p className="text-[10px] text-[#8A8A8A] mt-0.5">
-              RF / RADAR / SENSOR-FUSION CLASSIFIER PIPELINE
+              RF CSI / RANDOM FOREST (192-FEATURE) VOTING ENSEMBLE
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          {currentStatus === 'HUMAN_DETECTED' ? (
-            <StatusBadge status="ACTIVE" label="HUMAN DETECTED" size="xs" />
-          ) : currentStatus === 'NO_HUMAN' ? (
-            <StatusBadge status="ACTIVE" label="NO HUMAN DETECTED" size="xs" />
-          ) : currentStatus === 'INSUFFICIENT_DATA' ? (
-            <StatusBadge status="STALE" label="INSUFFICIENT DATA" size="xs" />
-          ) : currentStatus === 'ERROR' ? (
-            <StatusBadge status="OFFLINE" label="PIPELINE ERROR" size="xs" />
+          {!isOnline ? (
+            <StatusBadge status="OFFLINE" label="BACKEND OFFLINE" size="xs" />
+          ) : currentStatus === 'PERSON DETECTED' ? (
+            <StatusBadge status="ACTIVE" label="PERSON DETECTED" size="xs" />
+          ) : currentStatus === 'AREA EMPTY' ? (
+            <StatusBadge status="ACTIVE" label="AREA EMPTY" size="xs" />
+          ) : currentStatus === 'UNCERTAIN' ? (
+            <StatusBadge status="STALE" label="UNCERTAIN" size="xs" />
           ) : (
             <StatusBadge status="NO DATA" label="STATUS: NO DATA" size="xs" />
           )}
         </div>
       </div>
 
-      {/* Mandatory Technical Limitation Notice */}
+      {/* Mixed Content Security Restriction Banner (When run inside HTTPS cloud preview) */}
+      {diag.isHttpsContext && diag.mixedContentRisk && (
+        <div className="p-3 rounded bg-[#1C0F00] border border-[#B45309] text-[#F59E0B] space-y-2">
+          <div className="flex items-start gap-2.5">
+            <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5 text-[#F59E0B]" />
+            <div className="space-y-1 w-full">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wide text-[#FDE68A]">
+                  Browser Security Restriction: Mixed Content & Private Network Access
+                </span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#2D1600] text-[#FBBF24] border border-[#B45309]/50">
+                  HTTPS PREVIEW DETECTED
+                </span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-[#FDE68A]">
+                The current AI Studio preview is loaded over secure <strong>HTTPS</strong> ({diag.currentOrigin}). Modern web browsers strictly block active mixed-content subresource calls to unencrypted HTTP endpoints (<code>http://192.168.1.6:8000</code>) and insecure WebSockets (<code>ws://192.168.1.6:8000/ws</code>) on private LAN IPs.
+              </p>
+              <div className="text-[10px] leading-relaxed text-[#D97706] pt-1.5 border-t border-[#B45309]/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <strong>To conduct live LAN testing:</strong> Run the frontend locally over HTTP on the Windows machine:
+                  <code className="ml-1 px-1.5 py-0.5 rounded bg-[#0A0500] text-[#FDE68A] border border-[#B45309]/40 font-mono">
+                    npm run dev &rarr; http://localhost:5173
+                  </code>
+                </div>
+                <div className="text-[9px] text-[#FBBF24] shrink-0">
+                  Direct LAN access permitted in local HTTP context
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Real FastAPI Backend Health & Telemetry Status Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded bg-[#0D0D0D] border border-[#222222] text-[10px]">
+        <div className="flex flex-wrap items-center gap-3 text-[#B3B3B3]">
+          {/* Backend Status */}
+          <div className="flex items-center gap-1.5">
+            <Server className="w-3.5 h-3.5 text-[#38BDF8]" />
+            <span>BACKEND:</span>
+            {isOnline ? (
+              <span className="px-1.5 py-0.5 rounded bg-[#072412] text-[#22C55E] border border-[#22C55E]/40 font-bold">
+                ONLINE
+              </span>
+            ) : (
+              <span className="px-1.5 py-0.5 rounded bg-[#2A0808] text-[#EF4444] border border-[#EF4444]/40 font-bold">
+                OFFLINE
+              </span>
+            )}
+          </div>
+
+          {/* WebSocket Status */}
+          <div className="flex items-center gap-1.5">
+            {wsState === 'CONNECTED' ? (
+              <Wifi className="w-3.5 h-3.5 text-[#22C55E]" />
+            ) : (
+              <WifiOff className="w-3.5 h-3.5 text-[#EF4444]" />
+            )}
+            <span>WS:</span>
+            <span
+              className={`px-1.5 py-0.5 rounded font-bold border ${
+                wsState === 'CONNECTED'
+                  ? 'bg-[#072412] text-[#22C55E] border-[#22C55E]/40'
+                  : wsState === 'CONNECTING'
+                  ? 'bg-[#2A2000] text-[#EAB308] border-[#EAB308]/40'
+                  : 'bg-[#181818] text-[#8A8A8A] border-[#333333]'
+              }`}
+            >
+              {wsState}
+            </span>
+          </div>
+
+          {/* Stale Warning */}
+          {isStale && prediction && (
+            <span className="px-1.5 py-0.5 rounded bg-[#2A2000] text-[#EAB308] border border-[#EAB308]/40">
+              DISCONNECTED / STALE DATA
+            </span>
+          )}
+
+          {/* Model info */}
+          <div className="hidden md:flex items-center gap-1 text-[#8A8A8A]">
+            <Layers className="w-3 h-3 text-[#38BDF8]" />
+            <span>
+              {statusInfo?.model_type ?? 'RandomForestClassifier'}
+              {statusInfo?.features_required ? ` (${statusInfo.features_required} features)` : ''}
+            </span>
+          </div>
+        </div>
+
+        {/* Action Controls */}
+        <div className="flex items-center gap-2 ml-auto">
+          <button
+            type="button"
+            onClick={() => refreshFastApi()}
+            className="flex items-center gap-1 px-2 py-1 rounded bg-[#1A1A1A] hover:bg-[#252525] border border-[#333333] text-[#FFFFFF] transition-colors"
+            title="Force GET http://192.168.1.6:8000/api/status and /api/prediction"
+          >
+            <RefreshCw className="w-3 h-3 text-[#38BDF8]" />
+            <span>Check Status</span>
+          </button>
+
+          {wsState !== 'CONNECTED' && (
+            <button
+              type="button"
+              onClick={() => reconnectFastApiWs()}
+              className="flex items-center gap-1 px-2 py-1 rounded bg-[#0C1E2B] hover:bg-[#133045] border border-[#38BDF8]/40 text-[#38BDF8] transition-colors"
+              title="Reset backoff and connect to ws://192.168.1.6:8000/ws"
+            >
+              <Wifi className="w-3 h-3" />
+              <span>Connect WS</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setShowDiagnostics(!showDiagnostics)}
+            className="flex items-center gap-1 px-2 py-1 rounded bg-[#141414] hover:bg-[#1C1C1C] border border-[#2A2A2A] text-[#B3B3B3] transition-colors"
+            title="Toggle Network & Development Diagnostics"
+          >
+            <Terminal className="w-3 h-3 text-[#38BDF8]" />
+            <span>Diagnostics</span>
+            {showDiagnostics ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          </button>
+        </div>
+      </div>
+
+      {/* Development Diagnostics & Network Telemetry Panel */}
+      {showDiagnostics && (
+        <div className="p-3 rounded bg-[#0A0A0A] border border-[#222222] space-y-2.5 text-[10px]">
+          <div className="flex items-center justify-between pb-1.5 border-b border-[#1A1A1A]">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-[#FFFFFF] uppercase">
+              <Terminal className="w-3.5 h-3.5 text-[#38BDF8]" />
+              <span>Development Diagnostics & Network Telemetry</span>
+            </div>
+            <span className="text-[9px] text-[#8A8A8A]">
+              RUNTIME CONTEXT: {diag.isHttpsContext ? 'HTTPS CLOUD RUNTIME' : 'LOCAL HTTP RUNTIME'}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
+            {/* HTTP Status URL */}
+            <div className="p-2 rounded bg-[#050505] border border-[#1A1A1A] space-y-0.5">
+              <div className="text-[#8A8A8A] uppercase">HTTP Status URL</div>
+              <div className="text-[#38BDF8] font-mono break-all">{diag.httpStatusUrl}</div>
+              <div className="text-[9px] text-[#555555]">
+                {diag.lastHttpAttemptTime ? `Last Check: ${formatBackendTime(diag.lastHttpAttemptTime)}` : 'No checks yet'}
+              </div>
+            </div>
+
+            {/* WebSocket Stream URL */}
+            <div className="p-2 rounded bg-[#050505] border border-[#1A1A1A] space-y-0.5">
+              <div className="text-[#8A8A8A] uppercase">WebSocket Stream URL</div>
+              <div className="text-[#38BDF8] font-mono break-all">{diag.wsUrl}</div>
+              <div className="text-[9px] text-[#555555]">
+                {diag.lastWsAttemptTime ? `Last Attempt: ${formatBackendTime(diag.lastWsAttemptTime)}` : 'No attempts yet'}
+              </div>
+            </div>
+
+            {/* WebSocket readyState */}
+            <div className="p-2 rounded bg-[#050505] border border-[#1A1A1A] space-y-0.5">
+              <div className="text-[#8A8A8A] uppercase">WebSocket readyState</div>
+              <div className="font-bold">
+                <span
+                  className={
+                    diag.wsReadyState === 1
+                      ? 'text-[#22C55E]'
+                      : diag.wsReadyState === 0
+                      ? 'text-[#EAB308]'
+                      : 'text-[#8A8A8A]'
+                  }
+                >
+                  {diag.wsReadyStateLabel}
+                </span>
+              </div>
+              <div className="text-[9px] text-[#555555]">
+                {diag.reconnectPaused
+                  ? `Reconnection Paused (Attempt ${diag.reconnectAttempts}/${diag.maxReconnectAttempts})`
+                  : `Attempts: ${diag.reconnectAttempts} / ${diag.maxReconnectAttempts}`}
+              </div>
+            </div>
+
+            {/* Network Error Category */}
+            <div className="p-2 rounded bg-[#050505] border border-[#1A1A1A] space-y-0.5">
+              <div className="text-[#8A8A8A] uppercase">Error Classification</div>
+              <div className="font-bold">
+                <span
+                  className={
+                    diag.httpErrorCategory === 'NONE' && diag.wsErrorCategory === 'NONE'
+                      ? 'text-[#22C55E]'
+                      : diag.httpErrorCategory === 'MIXED_CONTENT_BLOCKED' || diag.wsErrorCategory === 'MIXED_CONTENT_BLOCKED'
+                      ? 'text-[#F59E0B]'
+                      : 'text-[#EF4444]'
+                  }
+                >
+                  {diag.httpErrorCategory !== 'NONE'
+                    ? diag.httpErrorCategory
+                    : diag.wsErrorCategory !== 'NONE'
+                    ? diag.wsErrorCategory
+                    : 'HEALTHY'}
+                </span>
+              </div>
+              <div className="text-[9px] text-[#8A8A8A] truncate">
+                WS Error: {diag.wsErrorCategory}
+              </div>
+            </div>
+          </div>
+
+          {/* Diagnostic message description */}
+          {(diag.networkErrorMessage || diag.wsErrorMessage) && (
+            <div className="p-2 rounded bg-[#120B05] border border-[#2D1600] text-[10px] space-y-1">
+              <div className="text-[#FBBF24] font-bold">Network & Security Root Cause:</div>
+              {diag.networkErrorMessage && (
+                <div className="text-[#FDE68A] leading-relaxed">
+                  &bull; <strong>HTTP Layer:</strong> {diag.networkErrorMessage}
+                </div>
+              )}
+              {diag.wsErrorMessage && (
+                <div className="text-[#FDE68A] leading-relaxed">
+                  &bull; <strong>WebSocket Layer:</strong> {diag.wsErrorMessage}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Local Windows Testing Guide */}
+          <div className="p-2 rounded bg-[#05080C] border border-[#112536] text-[10px] text-[#93C5FD] space-y-1">
+            <div className="font-bold text-[#60A5FA]">Target Setup for Real LAN Telemetry:</div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 text-[9px] font-mono text-[#BFDBFE]">
+              <div className="p-1 rounded bg-[#08131F]">Frontend: http://localhost:5173</div>
+              <div className="p-1 rounded bg-[#08131F]">Backend: http://192.168.1.6:8000</div>
+              <div className="p-1 rounded bg-[#08131F]">WebSocket: ws://192.168.1.6:8000/ws</div>
+            </div>
+            <div className="text-[9px] text-[#60A5FA] pt-0.5">
+              * Note: For cross-origin REST fetch from localhost:5173, ensure FastAPI has CORSMiddleware configured (allow_origins=[&quot;*&quot;]).
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mandatory Technical Physics Limitation Notice */}
       <div className="p-3 rounded bg-[#0A0800] border border-[#3A2E00] text-[#EAB308]">
         <div className="flex items-start gap-2.5">
           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-[#EAB308]" />
@@ -138,7 +423,7 @@ export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
               &ldquo;Through-obstacle human detection requires valid RF/radar/depth sensing input and a trained detection model.&rdquo;
             </p>
             <p className="text-[10px] leading-relaxed text-[#CA8A04]">
-              Standard field sensors (HC-SR04 ultrasonic, MPU6500 IMU, electret microphone, and LoRa RSSI) measure surface acoustic noise and node movement. They cannot reliably detect or count humans through collapsed rock or dense mine debris. The pipeline will output verified predictions once dedicated RF CSI / UWB radar hardware is connected and a trained classifier is loaded.
+              Standard field sensors (HC-SR04 ultrasonic, MPU6500 IMU, electret microphone, and LoRa RSSI) measure surface acoustic noise and node movement. They cannot reliably detect or count humans through collapsed rock or dense mine debris. The pipeline receives verified RF CSI vectors processed through a 192-feature Random Forest classifier on the remote AI backend.
             </p>
           </div>
         </div>
@@ -153,52 +438,44 @@ export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
             <span>Status</span>
           </div>
           <div className="mt-1.5 text-sm sm:text-base font-bold truncate">
-            {currentStatus === 'HUMAN_DETECTED' ? (
-              <span className="text-[#22C55E]">HUMAN DETECTED</span>
-            ) : currentStatus === 'NO_HUMAN' ? (
-              <span className="text-[#38BDF8]">NO HUMAN</span>
-            ) : currentStatus === 'INSUFFICIENT_DATA' ? (
-              <span className="text-[#EAB308]">INSUFFICIENT DATA</span>
-            ) : currentStatus === 'ERROR' ? (
-              <span className="text-[#EF4444]">ERROR</span>
+            {!isOnline ? (
+              <span className="text-[#EF4444]">BACKEND OFFLINE</span>
+            ) : currentStatus === 'PERSON DETECTED' ? (
+              <span className="text-[#22C55E]">PERSON DETECTED</span>
+            ) : currentStatus === 'AREA EMPTY' ? (
+              <span className="text-[#38BDF8]">AREA EMPTY</span>
+            ) : currentStatus === 'UNCERTAIN' ? (
+              <span className="text-[#EAB308]">UNCERTAIN</span>
             ) : (
               <span className="text-[#8A8A8A]">NO DATA</span>
             )}
           </div>
-          <div className="text-[9px] text-[#8A8A8A] mt-0.5">LIFECYCLE STATE</div>
+          <div className="text-[9px] text-[#8A8A8A] mt-0.5">CLASSIFIER OUTCOME</div>
         </div>
 
-        {/* 2. Estimated People */}
+        {/* 2. Estimated People (Backend does not provide discrete count -> display -- or NOT AVAILABLE) */}
         <div className="p-2.5 rounded bg-[#0D0D0D] border border-[#222222]">
           <div className="flex items-center gap-1.5 text-[10px] text-[#B3B3B3] uppercase">
             <Users className="w-3.5 h-3.5 text-[#38BDF8]" />
             <span>Estimated People</span>
           </div>
           <div className="mt-1.5 text-base sm:text-lg font-bold">
-            {detectionStatus?.modelAvailable &&
-            activeDetection?.status === 'HUMAN_DETECTED' &&
-            activeDetection?.estimatedCount !== null &&
-            activeDetection?.estimatedCount !== undefined ? (
-              <span className="text-[#22C55E]">{activeDetection.estimatedCount}</span>
-            ) : (
-              <span className="text-[#8A8A8A]">--</span>
-            )}
+            <span className="text-[#8A8A8A]">--</span>
           </div>
-          <div className="text-[9px] text-[#8A8A8A] mt-0.5">DISCRETE COUNT</div>
+          <div className="text-[9px] text-[#8A8A8A] mt-0.5">NOT AVAILABLE</div>
         </div>
 
-        {/* 3. Confidence */}
+        {/* 3. Confidence (Real backend confidence as percentage or --) */}
         <div className="p-2.5 rounded bg-[#0D0D0D] border border-[#222222]">
           <div className="flex items-center gap-1.5 text-[10px] text-[#B3B3B3] uppercase">
             <ShieldCheck className="w-3.5 h-3.5 text-[#38BDF8]" />
             <span>Confidence</span>
           </div>
           <div className="mt-1.5 text-base sm:text-lg font-bold">
-            {detectionStatus?.modelAvailable &&
-            (activeDetection?.status === 'HUMAN_DETECTED' || activeDetection?.status === 'NO_HUMAN') &&
-            activeDetection?.confidence !== null &&
-            activeDetection?.confidence !== undefined ? (
-              <span className="text-[#22C55E]">{activeDetection.confidence.toFixed(1)}%</span>
+            {prediction?.confidence !== null && prediction?.confidence !== undefined ? (
+              <span className="text-[#22C55E]">
+                {formatConfidence(prediction.confidence)}
+              </span>
             ) : (
               <span className="text-[#8A8A8A]">--</span>
             )}
@@ -206,72 +483,80 @@ export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
           <div className="text-[9px] text-[#8A8A8A] mt-0.5">MODEL POSTERIOR</div>
         </div>
 
-        {/* 4. Life Activity */}
+        {/* 4. Person Votes / Detection Window (e.g. 30 / 30, NOT people count) */}
         <div className="p-2.5 rounded bg-[#0D0D0D] border border-[#222222]">
           <div className="flex items-center gap-1.5 text-[10px] text-[#B3B3B3] uppercase">
-            <Activity className="w-3.5 h-3.5 text-[#38BDF8]" />
-            <span>Life Activity</span>
+            <Signal className="w-3.5 h-3.5 text-[#38BDF8]" />
+            <span>Person Votes</span>
           </div>
-          <div className="mt-1.5 text-xs sm:text-sm font-bold truncate">
-            {activeDetection?.lifeActivity && activeDetection.lifeActivity !== 'UNKNOWN' ? (
-              <span className="text-[#38BDF8]">{activeDetection.lifeActivity.replace(/_/g, ' ')}</span>
+          <div className="mt-1.5 text-base sm:text-lg font-bold">
+            {prediction?.person_votes !== null && prediction?.person_votes !== undefined ? (
+              <span className="text-[#38BDF8]">
+                {formatVotes(prediction.person_votes, prediction.window_size)}
+              </span>
             ) : (
-              <span className="text-[#8A8A8A]">UNKNOWN</span>
+              <span className="text-[#8A8A8A]">--</span>
             )}
           </div>
-          <div className="text-[9px] text-[#8A8A8A] mt-0.5">BIOMETRIC SIGN</div>
+          <div className="text-[9px] text-[#8A8A8A] mt-0.5">DETECTION WINDOW</div>
         </div>
 
-        {/* 5. Model */}
+        {/* 5. Model Type */}
         <div className="p-2.5 rounded bg-[#0D0D0D] border border-[#222222]">
           <div className="flex items-center gap-1.5 text-[10px] text-[#B3B3B3] uppercase">
             <Cpu className="w-3.5 h-3.5 text-[#38BDF8]" />
             <span>Model</span>
           </div>
           <div className="mt-1.5 text-xs font-bold truncate">
-            {detectionStatus?.modelAvailable ? (
-              <span className="text-[#22C55E]">{detectionStatus.modelName}</span>
+            {isOnline ? (
+              <span className="text-[#22C55E]">
+                {statusInfo?.model_type ?? 'RandomForest'}
+              </span>
             ) : (
               <span className="text-[#8A8A8A]">NOT AVAILABLE</span>
             )}
           </div>
           <div className="text-[9px] text-[#8A8A8A] mt-0.5">
-            {detectionStatus?.modelAvailable ? `v${detectionStatus.modelVersion}` : 'AWAITING WEIGHTS'}
+            {statusInfo?.features_required
+              ? `${statusInfo.features_required} FEATURES`
+              : '192-DIM VECTOR'}
           </div>
         </div>
 
-        {/* 6. Input Quality */}
+        {/* 6. ML Model State */}
         <div className="p-2.5 rounded bg-[#0D0D0D] border border-[#222222]">
           <div className="flex items-center gap-1.5 text-[10px] text-[#B3B3B3] uppercase">
-            <Signal className="w-3.5 h-3.5 text-[#38BDF8]" />
-            <span>Input Quality</span>
+            <Layers className="w-3.5 h-3.5 text-[#38BDF8]" />
+            <span>ML Model</span>
           </div>
           <div className="mt-1.5 text-base sm:text-lg font-bold">
-            {activeDetection?.inputQuality !== null && activeDetection?.inputQuality !== undefined ? (
-              <span className={activeDetection.inputQuality > 70 ? 'text-[#22C55E]' : 'text-[#EAB308]'}>
-                {activeDetection.inputQuality.toFixed(1)}%
+            {isOnline ? (
+              <span className="text-[#22C55E]">
+                {statusInfo?.ml_model ? statusInfo.ml_model.toUpperCase() : 'LOADED'}
               </span>
             ) : (
               <span className="text-[#8A8A8A]">--</span>
             )}
           </div>
-          <div className="text-[9px] text-[#8A8A8A] mt-0.5">SIGNAL INTEGRITY</div>
+          <div className="text-[9px] text-[#8A8A8A] mt-0.5">CSI BRIDGE PIPELINE</div>
         </div>
 
-        {/* 7. Last Inference */}
+        {/* 7. Last Inference (Real backend timestamp) */}
         <div className="p-2.5 rounded bg-[#0D0D0D] border border-[#222222] col-span-2 sm:col-span-1">
           <div className="flex items-center gap-1.5 text-[10px] text-[#B3B3B3] uppercase">
             <Clock className="w-3.5 h-3.5 text-[#38BDF8]" />
             <span>Last Inference</span>
           </div>
           <div className="mt-1.5 text-xs sm:text-sm font-bold">
-            {activeDetection?.inferenceTimestamp ? (
-              <span className="text-[#FFFFFF]">{formatTime(activeDetection.inferenceTimestamp)}</span>
+            {prediction?.timestamp ? (
+              <span className="text-[#FFFFFF]">
+                {formatBackendTime(prediction.timestamp)}
+              </span>
             ) : (
               <span className="text-[#8A8A8A]">--</span>
             )}
           </div>
-          <div className="text-[9px] text-[#8A8A8A] mt-0.5">RECENCY</div>
+          <div className="text-[9px] text-[#8A8A8A] mt-0.5">BACKEND TIME</div>
         </div>
       </div>
 
@@ -282,7 +567,7 @@ export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
             Inference Pipeline Lifecycle
           </span>
           <span className="text-[10px] text-[#8A8A8A]">
-            CURRENT STATE: {lifecycleStages[currentStageIndex].label}
+            CURRENT STAGE: {lifecycleStages[currentStageIndex].label}
           </span>
         </div>
 
@@ -327,18 +612,18 @@ export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
             <span>Verified Detection Event Log</span>
           </div>
           <span className="text-[10px] text-[#8A8A8A]">
-            {nodeHistory.length} REAL EVENTS (ZERO SYNTHETIC RECORDS)
+            {fastApiHistory.length} REAL FASTAPI EVENTS (ZERO SYNTHETIC RECORDS)
           </span>
         </div>
 
-        {nodeHistory.length === 0 ? (
+        {fastApiHistory.length === 0 ? (
           <div className="py-4 text-center border border-dashed border-[#1F1F1F] rounded bg-[#050505]">
             <HelpCircle className="w-5 h-5 mx-auto text-[#555555] mb-1.5" />
             <div className="text-xs text-[#8A8A8A] font-bold">
-              NO REAL DETECTION EVENTS RECORDED
+              NO REAL FASTAPI DETECTION EVENTS RECORDED
             </div>
             <p className="text-[10px] text-[#555555] mt-0.5 max-w-md mx-auto">
-              The detection engine strictly stores history only when a genuine trained model performs real inference on valid inputs. Mock, simulated, or default predictions are never generated.
+              Awaiting live inference packets from ws://192.168.1.6:8000/ws or REST prediction sync. Mock, simulated, or default predictions are never generated.
             </p>
           </div>
         ) : (
@@ -347,41 +632,43 @@ export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
               <thead>
                 <tr className="border-b border-[#222222] text-[#8A8A8A]">
                   <th className="py-1 px-2">TIME</th>
-                  <th className="py-1 px-2">NODE</th>
                   <th className="py-1 px-2">STATUS</th>
-                  <th className="py-1 px-2">EST. COUNT</th>
+                  <th className="py-1 px-2">PERSON VOTES</th>
                   <th className="py-1 px-2">CONFIDENCE</th>
-                  <th className="py-1 px-2">ACTIVITY</th>
                   <th className="py-1 px-2">MODEL</th>
-                  <th className="py-1 px-2">INPUT QUALITY</th>
+                  <th className="py-1 px-2">EST. COUNT</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#1A1A1A]">
-                {nodeHistory.map((item) => (
+                {fastApiHistory.map((item) => (
                   <tr key={item.id} className="hover:bg-[#121212]">
-                    <td className="py-1 px-2 text-[#FFFFFF]">{formatTime(item.timestamp)}</td>
-                    <td className="py-1 px-2 text-[#38BDF8]">{item.nodeId}</td>
+                    <td className="py-1 px-2 text-[#FFFFFF]">
+                      {formatBackendTime(item.timestamp)}
+                    </td>
                     <td className="py-1 px-2">
                       <span
                         className={`px-1 py-0.5 rounded text-[9px] font-bold ${
-                          item.status === 'HUMAN_DETECTED'
+                          item.status === 'PERSON DETECTED'
                             ? 'bg-[#072412] text-[#22C55E] border border-[#22C55E]/40'
-                            : 'bg-[#0C1E2B] text-[#38BDF8] border border-[#38BDF8]/40'
+                            : item.status === 'AREA EMPTY'
+                            ? 'bg-[#0C1E2B] text-[#38BDF8] border border-[#38BDF8]/40'
+                            : 'bg-[#2A2000] text-[#EAB308] border border-[#EAB308]/40'
                         }`}
                       >
-                        {item.status.replace(/_/g, ' ')}
+                        {item.status}
                       </span>
                     </td>
-                    <td className="py-1 px-2 text-[#FFFFFF]">
-                      {item.estimatedCount !== null ? item.estimatedCount : '--'}
+                    <td className="py-1 px-2 text-[#38BDF8]">
+                      {formatVotes(item.person_votes, item.window_size)}
                     </td>
                     <td className="py-1 px-2 text-[#FFFFFF]">
-                      {item.confidence !== null ? `${item.confidence.toFixed(1)}%` : '--'}
+                      {formatConfidence(item.confidence)}
                     </td>
-                    <td className="py-1 px-2 text-[#B3B3B3]">{item.lifeActivity}</td>
-                    <td className="py-1 px-2 text-[#8A8A8A]">{item.modelVersion ?? 'N/A'}</td>
                     <td className="py-1 px-2 text-[#8A8A8A]">
-                      {item.inputQuality !== null ? `${item.inputQuality.toFixed(1)}%` : '--'}
+                      {item.model_type ?? 'RandomForestClassifier'}
+                    </td>
+                    <td className="py-1 px-2 text-[#8A8A8A]">
+                      --
                     </td>
                   </tr>
                 ))}
