@@ -540,6 +540,12 @@ async function startServer() {
     frameRate: number | null;
     resolution: { width: number; height: number } | null;
     visiblePeopleCount: number | null;
+    globalUniquePeopleCount: number | null;
+    countStatus: string;
+    totalRegisteredInSession: number;
+    activeTracksCount: number;
+    coverageEstimateDeg: number;
+    coverageStatus: string;
     detections: any[];
     detectionQuality: string | null;
     modelName: string | null;
@@ -1506,10 +1512,10 @@ async function startServer() {
   });
 
   // =========================================================================
-  // CAMERA SUBSYSTEM ENDPOINTS: GET /status, GET /latest, POST /frame
+  // CAMERA SUBSYSTEM ENDPOINTS: GET /status, GET /latest, POST /frame, POST /session
   // =========================================================================
 
-  // GET /api/camera/status: Strict typed camera connection and detection state
+  // GET /api/camera/status: Strict typed camera connection, counting session, and detection state
   app.get('/api/camera/status', (req, res) => {
     const cameraId = (req.query.cameraId as string) || latestCameraTelemetry?.cameraId || 'CAM-01';
     const camera = cameraRegistry.get(cameraId) || latestCameraTelemetry;
@@ -1524,6 +1530,12 @@ async function startServer() {
         frameRate: null,
         resolution: null,
         visiblePeopleCount: null,
+        globalUniquePeopleCount: null,
+        countStatus: 'NO_DATA',
+        totalRegisteredInSession: 0,
+        activeTracksCount: 0,
+        coverageEstimateDeg: 0,
+        coverageStatus: 'UNKNOWN',
         detections: [],
         detectionQuality: null,
         model: null,
@@ -1547,6 +1559,12 @@ async function startServer() {
       frameRate: camera.frameRate,
       resolution: camera.resolution,
       visiblePeopleCount: camera.visiblePeopleCount,
+      globalUniquePeopleCount: camera.globalUniquePeopleCount ?? null,
+      countStatus: camera.countStatus || 'READY',
+      totalRegisteredInSession: camera.totalRegisteredInSession || 0,
+      activeTracksCount: camera.activeTracksCount || 0,
+      coverageEstimateDeg: camera.coverageEstimateDeg || 0,
+      coverageStatus: camera.coverageStatus || 'UNKNOWN',
       detections: camera.detections,
       detectionQuality: camera.detectionQuality,
       model: camera.modelName,
@@ -1577,6 +1595,69 @@ async function startServer() {
     });
   });
 
+  // POST /api/camera/session: Explicit counting session controls (START, PAUSE, RESUME, RESET, COMPLETE)
+  app.post('/api/camera/session', (req, res) => {
+    const body = req.body;
+    if (!body || typeof body !== 'object') {
+      res.status(400).json({ success: false, error: 'Invalid session payload' });
+      return;
+    }
+
+    const cameraId = body.cameraId || latestCameraTelemetry?.cameraId || 'CAM-01';
+    const action = body.action; // 'START' | 'PAUSE' | 'RESUME' | 'RESET' | 'COMPLETE'
+
+    const camera = cameraRegistry.get(cameraId) || latestCameraTelemetry;
+    if (!camera) {
+      res.status(404).json({ success: false, error: `Camera ${cameraId} not found or inactive` });
+      return;
+    }
+
+    const now = Date.now();
+    if (action === 'RESET') {
+      camera.globalUniquePeopleCount = 0;
+      camera.countStatus = 'READY';
+      camera.totalRegisteredInSession = 0;
+      camera.activeTracksCount = 0;
+      camera.coverageEstimateDeg = 0;
+      camera.coverageStatus = 'INSUFFICIENT';
+    } else if (action === 'START') {
+      camera.globalUniquePeopleCount = 0;
+      camera.countStatus = 'COUNTING';
+      camera.totalRegisteredInSession = 0;
+      camera.coverageEstimateDeg = 0;
+      camera.coverageStatus = 'INSUFFICIENT';
+    } else if (action === 'PAUSE') {
+      camera.countStatus = 'PAUSED';
+    } else if (action === 'RESUME') {
+      camera.countStatus = 'COUNTING';
+    } else if (action === 'COMPLETE') {
+      camera.countStatus = camera.coverageEstimateDeg >= 180 ? 'COMPLETE' : 'INSUFFICIENT_COVERAGE';
+    } else {
+      res.status(400).json({ success: false, error: `Unrecognized session action: ${action}` });
+      return;
+    }
+
+    camera.timestamp = now;
+    cameraRegistry.set(cameraId, camera);
+    latestCameraTelemetry = camera;
+
+    // Broadcast updated session state
+    broadcast({
+      type: 'CAMERA_UPDATE',
+      data: camera,
+      telemetry: camera,
+      payload: camera,
+    } as any);
+
+    res.json({
+      success: true,
+      cameraId,
+      action,
+      countStatus: camera.countStatus,
+      globalUniquePeopleCount: camera.globalUniquePeopleCount,
+    });
+  });
+
   // POST /api/camera/frame: Hardware frame ingestion (ESP32-CAM / LAN video pipeline)
   app.post('/api/camera/frame', (req, res) => {
     const body = req.body;
@@ -1595,6 +1676,26 @@ async function startServer() {
       typeof body.visiblePeopleCount === 'number'
         ? body.visiblePeopleCount
         : detections.length;
+    const globalUniquePeopleCount =
+      typeof body.globalUniquePeopleCount === 'number'
+        ? body.globalUniquePeopleCount
+        : typeof body.globalCount === 'number'
+        ? body.globalCount
+        : null;
+    const countStatus = typeof body.countStatus === 'string' ? body.countStatus : 'READY';
+    const totalRegisteredInSession =
+      typeof body.totalRegisteredInSession === 'number'
+        ? body.totalRegisteredInSession
+        : globalUniquePeopleCount ?? 0;
+    const activeTracksCount =
+      typeof body.activeTracksCount === 'number'
+        ? body.activeTracksCount
+        : detections.length;
+    const coverageEstimateDeg =
+      typeof body.coverageEstimateDeg === 'number' ? body.coverageEstimateDeg : 0;
+    const coverageStatus =
+      typeof body.coverageStatus === 'string' ? body.coverageStatus : 'UNKNOWN';
+
     const confidence = typeof body.confidence === 'number' ? body.confidence : null;
     const modelName = body.modelName || body.model || 'COCO-SSD';
     const quality = body.quality || body.detectionQuality || (width && height ? 'GOOD' : null);
@@ -1610,6 +1711,12 @@ async function startServer() {
       frameRate: typeof body.frameRate === 'number' ? body.frameRate : null,
       resolution: width && height ? { width, height } : null,
       visiblePeopleCount,
+      globalUniquePeopleCount,
+      countStatus,
+      totalRegisteredInSession,
+      activeTracksCount,
+      coverageEstimateDeg,
+      coverageStatus,
       detections,
       detectionQuality: quality,
       modelName,
@@ -1638,6 +1745,8 @@ async function startServer() {
       cameraId,
       timestamp,
       visiblePeopleCount,
+      globalUniquePeopleCount,
+      countStatus,
     });
   });
 

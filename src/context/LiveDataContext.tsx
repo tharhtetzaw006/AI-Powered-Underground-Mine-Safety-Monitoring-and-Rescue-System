@@ -61,6 +61,11 @@ export interface LiveDataContextValue {
   stopCamera: () => void;
   connectNetworkStream: (url: string) => void;
   refreshCameraStatus: () => Promise<void>;
+  startCounting: (cameraId?: string) => void;
+  pauseCounting: (cameraId?: string) => void;
+  resumeCounting: (cameraId?: string) => void;
+  resetCounting: (cameraId?: string) => void;
+  markComplete: (cameraId?: string) => void;
   ingestRadarTelemetry: (raw: unknown) => boolean;
   refreshRadarStatus: () => Promise<void>;
   refreshFastApi: () => Promise<void>;
@@ -269,6 +274,12 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               frameRate: data.frameRate,
               resolution: data.resolution,
               visiblePeopleCount: data.visiblePeopleCount,
+              globalUniquePeopleCount: data.globalUniquePeopleCount ?? null,
+              countStatus: data.countStatus || 'READY',
+              totalRegisteredInSession: data.totalRegisteredInSession || 0,
+              activeTracksCount: data.activeTracksCount || 0,
+              coverageEstimateDeg: data.coverageEstimateDeg || 0,
+              coverageStatus: data.coverageStatus || 'UNKNOWN',
               detections: data.detections || [],
               detectionQuality: data.quality || null,
               modelName: data.model || null,
@@ -296,6 +307,26 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const connectNetworkStream = useCallback((url: string) => {
     realCameraDetectionService.connectNetworkStream(url);
+  }, []);
+
+  const startCounting = useCallback((cameraId?: string) => {
+    realCameraDetectionService.startCounting(cameraId);
+  }, []);
+
+  const pauseCounting = useCallback((cameraId?: string) => {
+    realCameraDetectionService.pauseCounting(cameraId);
+  }, []);
+
+  const resumeCounting = useCallback((cameraId?: string) => {
+    realCameraDetectionService.resumeCounting(cameraId);
+  }, []);
+
+  const resetCounting = useCallback((cameraId?: string) => {
+    realCameraDetectionService.resetCounting(cameraId);
+  }, []);
+
+  const markComplete = useCallback((cameraId?: string) => {
+    realCameraDetectionService.markComplete(cameraId);
   }, []);
 
   const refreshFastApi = useCallback(async () => {
@@ -404,6 +435,11 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     stopCamera,
     connectNetworkStream,
     refreshCameraStatus,
+    startCounting,
+    pauseCounting,
+    resumeCounting,
+    resetCounting,
+    markComplete,
     ingestRadarTelemetry,
     refreshRadarStatus,
     refreshFastApi,
@@ -439,6 +475,11 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     stopCamera,
     connectNetworkStream,
     refreshCameraStatus,
+    startCounting,
+    pauseCounting,
+    resumeCounting,
+    resetCounting,
+    markComplete,
     ingestRadarTelemetry,
     refreshRadarStatus,
     refreshFastApi,

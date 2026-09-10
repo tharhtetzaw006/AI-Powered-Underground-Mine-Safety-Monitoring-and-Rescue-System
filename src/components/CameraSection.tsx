@@ -16,6 +16,10 @@ import {
   PowerOff,
   Wrench,
   ShieldAlert,
+  Play,
+  Pause,
+  RotateCcw,
+  Compass,
 } from 'lucide-react';
 import { StatusBadge } from './StatusBadge.tsx';
 
@@ -34,6 +38,11 @@ export const CameraSection: React.FC<CameraSectionProps> = ({ id }) => {
     stopCamera,
     connectNetworkStream,
     refreshCameraStatus,
+    startCounting,
+    pauseCounting,
+    resumeCounting,
+    resetCounting,
+    markComplete,
     fastApiState,
     radarState,
     sensorFusionResult,
@@ -113,7 +122,9 @@ export const CameraSection: React.FC<CameraSectionProps> = ({ id }) => {
 
       // Label badge
       const confPercent = Math.round((det.confidence || 0) * 100);
-      const labelText = `PERSON ${det.trackId ? `#${det.trackId} ` : ''}| ${confPercent}%`;
+      const labelText = det.globalId
+        ? `PERSON G-${det.globalId} [T-${det.trackId ?? '?'}] | ${confPercent}%`
+        : `PERSON ${det.trackId ? `T-${det.trackId} ` : ''}| ${confPercent}%`;
 
       ctx.font = 'bold 12px ui-monospace, monospace';
       const textMetrics = ctx.measureText(labelText);
@@ -165,6 +176,15 @@ export const CameraSection: React.FC<CameraSectionProps> = ({ id }) => {
   // Format helpers
   const isStreaming = cameraTelemetry.state === 'STREAMING';
   const visibleCount = isStreaming ? (cameraTelemetry.visiblePeopleCount ?? 0) : '--';
+  const globalCount =
+    isStreaming && cameraTelemetry.globalUniquePeopleCount !== null
+      ? cameraTelemetry.globalUniquePeopleCount
+      : '--';
+  const countStatus = isStreaming ? (cameraTelemetry.countStatus || 'READY') : 'NO_DATA';
+  const totalRegistered = isStreaming ? (cameraTelemetry.totalRegisteredInSession || 0) : '--';
+  const coverageDeg = isStreaming ? (cameraTelemetry.coverageEstimateDeg ?? 0) : '--';
+  const coverageStatus = isStreaming ? (cameraTelemetry.coverageStatus || 'UNKNOWN') : 'NO_DATA';
+
   const fpsText = cameraTelemetry.frameRate ? `${cameraTelemetry.frameRate.toFixed(1)} FPS` : '--';
   const resText = cameraTelemetry.resolution
     ? `${cameraTelemetry.resolution.width}x${cameraTelemetry.resolution.height}`
@@ -231,100 +251,247 @@ export const CameraSection: React.FC<CameraSectionProps> = ({ id }) => {
           <div className="space-y-3">
             {/* Real Hardware Metrics Ribbon */}
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-2">
-              {/* Prominent Visible People Pill */}
+              {/* 1. Global Unique People Headcount (Primary Metric) */}
               <div
-                id="camera-visible-people-pill"
+                id="camera-global-unique-people-pill"
                 className={`col-span-2 sm:col-span-1 p-2 rounded border flex flex-col justify-between ${
-                  isStreaming && typeof visibleCount === 'number' && visibleCount > 0
+                  isStreaming && typeof globalCount === 'number' && globalCount > 0
                     ? 'bg-[#062419] border-[#10B981] text-[#10B981]'
                     : isStreaming
-                    ? 'bg-[#0D0D0D] border-[#222222] text-[#FFFFFF]'
+                    ? 'bg-[#0D0D0D] border-[#38BDF8]/40 text-[#FFFFFF]'
                     : 'bg-[#0D0D0D] border-[#222222] text-[#8A8A8A]'
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-[9px] uppercase tracking-wider text-[#8A8A8A]">
-                    VISIBLE PEOPLE
+                  <span className="text-[9px] uppercase tracking-wider font-bold text-[#8A8A8A]">
+                    OBSERVED UNIQUE (EST)
                   </span>
-                  <Eye className="w-3.5 h-3.5" />
+                  <Camera className="w-3.5 h-3.5 text-[#38BDF8]" />
                 </div>
-                <div className="text-xl font-bold tracking-tight mt-0.5">
-                  {visibleCount}
-                  {isStreaming && typeof visibleCount === 'number' && (
-                    <span className="text-[10px] font-normal ml-1">
-                      {visibleCount === 1 ? 'DETECTED' : 'DETECTED'}
+                <div className="text-2xl font-bold tracking-tight mt-0.5">
+                  {globalCount}
+                  {isStreaming && typeof globalCount === 'number' && (
+                    <span className="text-[9px] font-normal ml-1.5 opacity-80 uppercase">
+                      HEURISTIC
                     </span>
                   )}
                 </div>
+                <div className="text-[9px] text-[#8A8A8A] mt-0.5 truncate">
+                  REGISTRY: {totalRegistered} (COLOR DESCRIPTOR)
+                </div>
               </div>
 
-              {/* Status Pill */}
+              {/* 2. Count Status */}
               <div className="p-2 rounded bg-[#0D0D0D] border border-[#222222] flex flex-col justify-between">
                 <span className="text-[9px] uppercase tracking-wider text-[#8A8A8A]">
-                  CAMERA STATUS
+                  COUNT STATUS
                 </span>
                 <div className="mt-0.5">
-                  <StatusBadge
-                    status={
-                      cameraTelemetry.state === 'STREAMING'
-                        ? 'ONLINE'
-                        : cameraTelemetry.state === 'CONNECTING'
-                        ? 'SYNCING'
-                        : cameraTelemetry.state === 'STALE'
-                        ? 'STALE'
-                        : cameraTelemetry.state === 'ERROR'
-                        ? 'OFFLINE'
-                        : 'NO DATA'
-                    }
-                    label={cameraTelemetry.state}
-                    size="xs"
-                  />
-                </div>
-              </div>
-
-              {/* FPS & Resolution */}
-              <div className="p-2 rounded bg-[#0D0D0D] border border-[#222222] flex flex-col justify-between">
-                <span className="text-[9px] uppercase tracking-wider text-[#8A8A8A]">
-                  FRAME RATE / RES
-                </span>
-                <div className="text-xs font-bold text-[#FFFFFF] mt-0.5">
-                  {fpsText} &bull; <span className="text-[10px] text-[#B3B3B3]">{resText}</span>
-                </div>
-              </div>
-
-              {/* Detection Quality */}
-              <div className="p-2 rounded bg-[#0D0D0D] border border-[#222222] flex flex-col justify-between">
-                <span className="text-[9px] uppercase tracking-wider text-[#8A8A8A]">
-                  QUALITY / MOTION
-                </span>
-                <div className="text-xs font-bold text-[#FFFFFF] mt-0.5">
                   <span
-                    className={
-                      qualityText === 'GOOD'
-                        ? 'text-[#10B981]'
-                        : qualityText === 'LIMITED'
-                        ? 'text-[#F59E0B]'
-                        : 'text-[#8A8A8A]'
-                    }
+                    className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold tracking-wider ${
+                      countStatus === 'COUNTING'
+                        ? 'bg-[#10B981]/20 text-[#10B981] border border-[#10B981]/50 animate-pulse'
+                        : countStatus === 'PAUSED'
+                        ? 'bg-[#F59E0B]/20 text-[#F59E0B] border border-[#F59E0B]/50'
+                        : countStatus === 'COMPLETE'
+                        ? 'bg-[#38BDF8]/20 text-[#38BDF8] border border-[#38BDF8]/50'
+                        : countStatus === 'INSUFFICIENT_COVERAGE'
+                        ? 'bg-[#EF4444]/20 text-[#EF4444] border border-[#EF4444]/50'
+                        : 'bg-[#222222] text-[#8A8A8A]'
+                    }`}
                   >
-                    {qualityText}
+                    {countStatus}
                   </span>
-                  {' '}&bull;{' '}
-                  <span className="text-[10px] text-[#B3B3B3]">{motionText}</span>
+                </div>
+                <div className="text-[9px] text-[#8A8A8A] mt-0.5">
+                  SESSION: {isStreaming ? cameraTelemetry.cameraId : 'STANDBY'}
                 </div>
               </div>
 
-              {/* Model & Confidence */}
-              <div className="col-span-2 sm:col-span-1 p-2 rounded bg-[#0D0D0D] border border-[#222222] flex flex-col justify-between">
+              {/* 3. Visible in Current Frame */}
+              <div
+                id="camera-visible-people-pill"
+                className="p-2 rounded bg-[#0D0D0D] border border-[#222222] flex flex-col justify-between"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[9px] uppercase tracking-wider text-[#8A8A8A]">
+                    VISIBLE IN FRAME
+                  </span>
+                  <Eye className="w-3.5 h-3.5 text-[#8A8A8A]" />
+                </div>
+                <div className="text-xl font-bold tracking-tight text-[#FFFFFF] mt-0.5">
+                  {visibleCount}
+                  {isStreaming && typeof visibleCount === 'number' && (
+                    <span className="text-[10px] font-normal text-[#8A8A8A] ml-1">
+                      CURRENT
+                    </span>
+                  )}
+                </div>
+                <div className="text-[9px] text-[#8A8A8A] mt-0.5">
+                  ACTIVE TRACKS: {cameraTelemetry.activeTracksCount || 0}
+                </div>
+              </div>
+
+              {/* 4. Room Sweep Coverage */}
+              <div className="p-2 rounded bg-[#0D0D0D] border border-[#222222] flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-[9px] uppercase tracking-wider text-[#8A8A8A]">
+                    SWEEP ARC (EST)
+                  </span>
+                  <Compass className="w-3.5 h-3.5 text-[#38BDF8]" />
+                </div>
+                <div className="text-xs font-bold text-[#FFFFFF] mt-0.5">
+                  {coverageDeg !== '--' ? `${coverageDeg}°` : '--'}{' '}
+                  <span
+                    className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
+                      coverageStatus === 'SUFFICIENT'
+                        ? 'text-[#10B981] bg-[#062419]'
+                        : coverageStatus === 'PARTIAL'
+                        ? 'text-[#F59E0B] bg-[#241a06]'
+                        : coverageStatus === 'INSUFFICIENT'
+                        ? 'text-[#EF4444] bg-[#240606]'
+                        : 'text-[#8A8A8A] bg-[#1A1A1A]'
+                    }`}
+                  >
+                    {coverageStatus}
+                  </span>
+                </div>
+                <div className="text-[9px] text-[#8A8A8A] mt-0.5">
+                  UNVERIFIED 3D (2D EST)
+                </div>
+              </div>
+
+              {/* 5. Stream Quality & Hardware Rate */}
+              <div className="p-2 rounded bg-[#0D0D0D] border border-[#222222] flex flex-col justify-between">
                 <span className="text-[9px] uppercase tracking-wider text-[#8A8A8A]">
-                  MODEL / CONFIDENCE
+                  RATE / MOTION
                 </span>
-                <div className="text-xs font-bold text-[#38BDF8] mt-0.5 truncate">
-                  {confText} &bull;{' '}
-                  <span className="text-[9px] text-[#8A8A8A]">{modelText}</span>
+                <div className="text-xs font-bold text-[#FFFFFF] mt-0.5">
+                  {fpsText} &bull; <span className="text-[10px] text-[#B3B3B3]">{motionText}</span>
+                </div>
+                <div className="text-[9px] text-[#8A8A8A] mt-0.5 truncate">
+                  RES: {resText}
                 </div>
               </div>
             </div>
+
+            {/* Session Controller Toolbar */}
+            <div className="flex flex-wrap items-center justify-between gap-2 p-2 rounded bg-[#0D0D0D] border border-[#222222]">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-[#8A8A8A] uppercase font-bold tracking-wider">
+                  SWEEP COUNT SESSION:
+                </span>
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                    countStatus === 'COUNTING'
+                      ? 'bg-[#10B981]/20 text-[#10B981] border border-[#10B981]/40 animate-pulse'
+                      : countStatus === 'PAUSED'
+                      ? 'bg-[#F59E0B]/20 text-[#F59E0B] border border-[#F59E0B]/40'
+                      : countStatus === 'COMPLETE'
+                      ? 'bg-[#38BDF8]/20 text-[#38BDF8] border border-[#38BDF8]/40'
+                      : countStatus === 'INSUFFICIENT_COVERAGE'
+                      ? 'bg-[#EF4444]/20 text-[#EF4444] border border-[#EF4444]/40'
+                      : 'bg-[#222222] text-[#8A8A8A]'
+                  }`}
+                >
+                  {countStatus}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                {(!countStatus || countStatus === 'READY' || countStatus === 'NO_DATA') && (
+                  <button
+                    type="button"
+                    onClick={() => startCounting()}
+                    disabled={!isStreaming}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#10B981] text-[#000000] font-bold text-xs hover:bg-[#10B981]/90 disabled:opacity-40 transition-colors"
+                  >
+                    <Play className="w-3 h-3" />
+                    <span>START COUNTING</span>
+                  </button>
+                )}
+
+                {countStatus === 'COUNTING' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => pauseCounting()}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#F59E0B] text-[#000000] font-bold text-xs hover:bg-[#F59E0B]/90 transition-colors"
+                    >
+                      <Pause className="w-3 h-3" />
+                      <span>PAUSE</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => markComplete()}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#38BDF8] text-[#000000] font-bold text-xs hover:bg-[#38BDF8]/90 transition-colors"
+                    >
+                      <CheckCircle2 className="w-3 h-3" />
+                      <span>FINALIZE COUNT</span>
+                    </button>
+                  </>
+                )}
+
+                {countStatus === 'PAUSED' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => resumeCounting()}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#10B981] text-[#000000] font-bold text-xs hover:bg-[#10B981]/90 transition-colors"
+                    >
+                      <Play className="w-3 h-3" />
+                      <span>RESUME</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => markComplete()}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#38BDF8] text-[#000000] font-bold text-xs hover:bg-[#38BDF8]/90 transition-colors"
+                    >
+                      <CheckCircle2 className="w-3 h-3" />
+                      <span>FINALIZE COUNT</span>
+                    </button>
+                  </>
+                )}
+
+                {(countStatus === 'COMPLETE' || countStatus === 'INSUFFICIENT_COVERAGE') && (
+                  <button
+                    type="button"
+                    onClick={() => startCounting()}
+                    disabled={!isStreaming}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#10B981] text-[#000000] font-bold text-xs hover:bg-[#10B981]/90 disabled:opacity-40 transition-colors"
+                  >
+                    <Play className="w-3 h-3" />
+                    <span>START NEW COUNT</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => resetCounting()}
+                  className="flex items-center gap-1 px-2 py-1 rounded bg-[#1A1A1A] border border-[#333333] text-[#B3B3B3] text-xs hover:text-[#FFFFFF] hover:border-[#555555] transition-colors"
+                  title="Reset unique people registry and count without resetting RF, Radar, or sensor telemetry"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>RESET</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Coverage Status Warning Alert */}
+            {(countStatus === 'INSUFFICIENT_COVERAGE' ||
+              (countStatus === 'COUNTING' && coverageStatus === 'INSUFFICIENT' && typeof coverageDeg === 'number' && coverageDeg < 60)) && (
+              <div className="p-2 rounded bg-[#241306] border border-[#78350F] text-xs text-[#F59E0B] flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-[#F59E0B]" />
+                  <span>
+                    <strong>INSUFFICIENT SWEEP:</strong> Sweep camera across the room for visual overlap. Note: 2D monocular motion estimation cannot prove complete room coverage or detect occluded occupants.
+                  </span>
+                </div>
+                <span className="text-[10px] text-[#F59E0B] font-bold shrink-0">
+                  {coverageDeg}° / 180° MIN
+                </span>
+              </div>
+            )}
 
             {/* Video Viewport & Detection Canvas */}
             <div className="relative aspect-video w-full rounded border border-[#222222] bg-[#000000] overflow-hidden flex items-center justify-center">
