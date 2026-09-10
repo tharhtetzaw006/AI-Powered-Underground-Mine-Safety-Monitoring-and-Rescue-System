@@ -29,6 +29,7 @@ import {
 } from './src/types/telemetry.ts';
 import { realSensorFeatureExtractor } from './src/services/realSensorFeatureExtractor.ts';
 import { productionDetectionEngine } from './src/services/detectionEngine.ts';
+import { validateRadarTelemetry } from './src/services/radarValidator.ts';
 
 const PORT = 3000;
 const HOST = '0.0.0.0';
@@ -1199,6 +1200,63 @@ async function startServer() {
     res.json({
       nodeId: queryNodeId,
       detection: state?.lastResult ?? null,
+    });
+  });
+
+  // GET /api/radar/status: Real radar hardware connection status
+  app.get('/api/radar/status', (_req, res) => {
+    res.json({
+      connected: false,
+      status: 'NOT_CONNECTED',
+      deviceId: null,
+      lastSeen: null,
+      sampleRateHz: null,
+      firmwareVersion: null,
+      source: 'UNKNOWN',
+      vitalSignSupported: false,
+      message: 'No radar hardware connected. Telemetry input awaiting connection.',
+    });
+  });
+
+  // GET /api/radar/latest: Latest verified radar telemetry and detection
+  app.get('/api/radar/latest', (_req, res) => {
+    res.json({
+      telemetry: null,
+      detection: null,
+      status: 'NO_DATA',
+      message: 'No active radar telemetry packets recorded.',
+    });
+  });
+
+  // POST /api/radar/telemetry: Hardware ingestion endpoint for ESP32 / serial / gateway radar telemetry
+  app.post('/api/radar/telemetry', (req, res) => {
+    const validation = validateRadarTelemetry(req.body, 'HTTP');
+    if (!validation.isValid || !validation.data) {
+      res.status(400).json({
+        success: false,
+        error: validation.error ?? 'Invalid radar telemetry packet',
+      });
+      return;
+    }
+    res.json({
+      success: true,
+      accepted: true,
+      telemetry: validation.data,
+    });
+  });
+
+  // GET /api/detection/fusion/latest: Latest combined sensor fusion outcome
+  app.get('/api/detection/fusion/latest', (_req, res) => {
+    res.json({
+      finalStatus: 'NO DATA',
+      evidenceSource: 'NO_DATA',
+      csiStatus: 'NO DATA',
+      radarStatus: 'NO DATA',
+      csiConfidence: null,
+      radarConfidence: null,
+      fusionState: 'IDLE',
+      lastFusionUpdate: null,
+      notes: 'Awaiting verified sensor streams.',
     });
   });
 

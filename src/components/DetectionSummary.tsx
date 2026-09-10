@@ -45,6 +45,8 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { StatusBadge } from './StatusBadge.tsx';
+import { SensorFusionPanel } from './SensorFusionPanel.tsx';
+import { RadarDetectionPanel } from './RadarDetectionPanel.tsx';
 
 interface DetectionSummaryProps {
   id?: string;
@@ -55,6 +57,10 @@ export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
     activeNodeId,
     fastApiState,
     fastApiHistory,
+    radarState,
+    sensorFusionResult,
+    refreshRadarStatus,
+    ingestRadarTelemetry,
     refreshFastApi,
     reconnectFastApiWs,
   } = useLiveData();
@@ -152,22 +158,28 @@ export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
               </span>
             </div>
             <p className="text-[10px] text-[#8A8A8A] mt-0.5">
-              RF CSI / RANDOM FOREST (192-FEATURE) VOTING ENSEMBLE
+              RF CSI / RANDOM FOREST (192-FEATURE) VOTING ENSEMBLE &bull; CSI + RADAR SENSOR FUSION
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Fusion Outcome Summary Badge */}
+          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#10081C] border border-[#A855F7]/40 text-[#C084FC] text-[10px]">
+            <span className="text-[#8A8A8A]">FUSION:</span>
+            <span className="font-bold">{sensorFusionResult.finalStatus}</span>
+          </div>
+
           {!isOnline ? (
-            <StatusBadge status="OFFLINE" label="BACKEND OFFLINE" size="xs" />
+            <StatusBadge status="OFFLINE" label="CSI: OFFLINE" size="xs" />
           ) : currentStatus === 'PERSON DETECTED' ? (
-            <StatusBadge status="ACTIVE" label="PERSON DETECTED" size="xs" />
+            <StatusBadge status="ACTIVE" label="CSI: PERSON DETECTED" size="xs" />
           ) : currentStatus === 'AREA EMPTY' ? (
-            <StatusBadge status="ACTIVE" label="AREA EMPTY" size="xs" />
+            <StatusBadge status="ACTIVE" label="CSI: AREA EMPTY" size="xs" />
           ) : currentStatus === 'UNCERTAIN' ? (
-            <StatusBadge status="STALE" label="UNCERTAIN" size="xs" />
+            <StatusBadge status="STALE" label="CSI: UNCERTAIN" size="xs" />
           ) : (
-            <StatusBadge status="NO DATA" label="STATUS: NO DATA" size="xs" />
+            <StatusBadge status="NO DATA" label="CSI: NO DATA" size="xs" />
           )}
         </div>
       </div>
@@ -204,6 +216,34 @@ export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
           </div>
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* SECTION 1: SENSOR FUSION ARBITRATION PANEL */}
+      {/* ========================================================================= */}
+      <SensorFusionPanel
+        fusionResult={sensorFusionResult}
+        csiOnline={isOnline}
+        radarConnected={radarState.deviceStatus.connected && !radarState.isStale}
+      />
+
+      {/* ========================================================================= */}
+      {/* SECTION 2: CSI HUMAN DETECTION PIPELINE (192-FEATURE RANDOM FOREST) */}
+      {/* ========================================================================= */}
+      <div className="p-3.5 rounded bg-[#0A0A0A] border border-[#222222] space-y-3.5 font-mono">
+        <div className="flex items-center justify-between pb-2 border-b border-[#1C1C1C]">
+          <div className="flex items-center gap-2">
+            <Radio className="w-4 h-4 text-[#22C55E]" />
+            <h4 className="text-xs font-bold uppercase tracking-wider text-[#FFFFFF]">
+              RF CSI Human Detection Pipeline
+            </h4>
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#141414] text-[#22C55E] border border-[#22C55E]/40 font-semibold">
+              192 FEATURES &bull; 30-VOTE WINDOW
+            </span>
+          </div>
+          <span className="text-[10px] text-[#8A8A8A]">
+            FASTAPI: http://192.168.1.6:8000
+          </span>
+        </div>
 
       {/* Real FastAPI Backend Health & Telemetry Status Bar */}
       <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded bg-[#0D0D0D] border border-[#222222] text-[10px]">
@@ -677,6 +717,17 @@ export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
           </div>
         )}
       </div>
+      {/* Close CSI Pipeline Section */}
+      </div>
+
+      {/* ========================================================================= */}
+      {/* SECTION 3: RADAR DETECTION SUBSYSTEM (INDEPENDENT HARDWARE SENSING SOURCE) */}
+      {/* ========================================================================= */}
+      <RadarDetectionPanel
+        radarState={radarState}
+        onRefreshRadar={refreshRadarStatus}
+        onIngestTelemetry={ingestRadarTelemetry}
+      />
     </div>
   );
 };

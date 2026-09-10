@@ -24,6 +24,9 @@ import { realTelemetryProcessor, RealTelemetryProcessor } from '../services/real
 import { DerivedSensorMetrics } from '../types/signalProcessing.ts';
 import { fastApiDetectionService } from '../services/fastApiDetectionService.ts';
 import { FastApiState, FastApiDetectionHistoryRecord } from '../types/fastApiDetection.ts';
+import { radarDetectionService } from '../services/radarDetectionService.ts';
+import { RadarState, SensorFusionResult } from '../types/radar.ts';
+import { computeSensorFusion } from '../services/sensorFusionService.ts';
 
 export interface LiveDataContextValue {
   connectionStatus: ConnectionStatus;
@@ -46,6 +49,10 @@ export interface LiveDataContextValue {
   realTelemetryProcessor: RealTelemetryProcessor;
   fastApiState: FastApiState;
   fastApiHistory: FastApiDetectionHistoryRecord[];
+  radarState: RadarState;
+  sensorFusionResult: SensorFusionResult;
+  ingestRadarTelemetry: (raw: unknown) => boolean;
+  refreshRadarStatus: () => Promise<void>;
   refreshFastApi: () => Promise<void>;
   reconnectFastApiWs: () => void;
   sendManualPacket: (packet: unknown) => Promise<{ success: boolean; message: string }>;
@@ -73,6 +80,9 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Real remote FastAPI Human Detection state
   const [fastApiState, setFastApiState] = useState<FastApiState>(fastApiDetectionService.getState());
   const [fastApiHistory, setFastApiHistory] = useState<FastApiDetectionHistoryRecord[]>(fastApiDetectionService.getHistory());
+
+  // Real Radar Detection state
+  const [radarState, setRadarState] = useState<RadarState>(radarDetectionService.getState());
 
 
   // Auto-select first active node if activeNodeId is null or becomes invalid
@@ -183,6 +193,12 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setFastApiHistory(fastApiDetectionService.getHistory());
     });
 
+    // Radar service subscription & initial status check
+    const unsubRadar = radarDetectionService.onStateChange((state) => {
+      setRadarState(state);
+    });
+    radarDetectionService.pollHttp('/api/radar/status', '/api/radar/latest');
+
     return () => {
       unsubConnection();
       unsubNodes();
@@ -192,6 +208,7 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       unsubDetection();
       unsubFastApiState();
       unsubFastApiPred();
+      unsubRadar();
       fastApiDetectionService.stop();
       liveTelemetryService.disconnect();
     };
@@ -205,6 +222,18 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const reconnectFastApiWs = useCallback(() => {
     fastApiDetectionService.connectWs(true);
   }, []);
+
+  const refreshRadarStatus = useCallback(async () => {
+    await radarDetectionService.pollHttp('/api/radar/status', '/api/radar/latest');
+  }, []);
+
+  const ingestRadarTelemetry = useCallback((raw: unknown) => {
+    return radarDetectionService.ingestTelemetry(raw);
+  }, []);
+
+  const sensorFusionResult = useMemo(() => {
+    return computeSensorFusion(fastApiState, radarState);
+  }, [fastApiState, radarState]);
 
   const refreshDetection = useCallback(async () => {
     try {
@@ -281,6 +310,10 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     realTelemetryProcessor,
     fastApiState,
     fastApiHistory,
+    radarState,
+    sensorFusionResult,
+    ingestRadarTelemetry,
+    refreshRadarStatus,
     refreshFastApi,
     reconnectFastApiWs,
     sendManualPacket,
@@ -305,6 +338,10 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     lastUpdateTime,
     fastApiState,
     fastApiHistory,
+    radarState,
+    sensorFusionResult,
+    ingestRadarTelemetry,
+    refreshRadarStatus,
     refreshFastApi,
     reconnectFastApiWs,
     sendManualPacket,
