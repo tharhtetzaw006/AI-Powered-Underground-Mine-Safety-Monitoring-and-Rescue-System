@@ -170,14 +170,14 @@ export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
             <span className="font-bold">{sensorFusionResult.finalStatus}</span>
           </div>
 
-          {!isOnline ? (
-            <StatusBadge status="OFFLINE" label="CSI: OFFLINE" size="xs" />
-          ) : currentStatus === 'PERSON DETECTED' ? (
+          {currentStatus === 'PERSON DETECTED' ? (
             <StatusBadge status="ACTIVE" label="CSI: PERSON DETECTED" size="xs" />
           ) : currentStatus === 'AREA EMPTY' ? (
             <StatusBadge status="ACTIVE" label="CSI: AREA EMPTY" size="xs" />
           ) : currentStatus === 'UNCERTAIN' ? (
             <StatusBadge status="STALE" label="CSI: UNCERTAIN" size="xs" />
+          ) : !isOnline ? (
+            <StatusBadge status="OFFLINE" label="CSI: OFFLINE" size="xs" />
           ) : (
             <StatusBadge status="NO DATA" label="CSI: NO DATA" size="xs" />
           )}
@@ -478,19 +478,23 @@ export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
             <span>Status</span>
           </div>
           <div className="mt-1.5 text-sm sm:text-base font-bold truncate">
-            {!isOnline ? (
-              <span className="text-[#EF4444]">BACKEND OFFLINE</span>
-            ) : currentStatus === 'PERSON DETECTED' ? (
+            {currentStatus === 'PERSON DETECTED' ? (
               <span className="text-[#22C55E]">PERSON DETECTED</span>
             ) : currentStatus === 'AREA EMPTY' ? (
               <span className="text-[#38BDF8]">AREA EMPTY</span>
             ) : currentStatus === 'UNCERTAIN' ? (
               <span className="text-[#EAB308]">UNCERTAIN</span>
+            ) : !isOnline ? (
+              <span className="text-[#EF4444]">BACKEND OFFLINE</span>
             ) : (
               <span className="text-[#8A8A8A]">NO DATA</span>
             )}
           </div>
-          <div className="text-[9px] text-[#8A8A8A] mt-0.5">CLASSIFIER OUTCOME</div>
+          <div className="text-[9px] text-[#8A8A8A] mt-0.5">
+            {prediction && wsState !== 'CONNECTED'
+              ? 'STORED LATEST (WS DISCONNECTED)'
+              : 'CLASSIFIER OUTCOME'}
+          </div>
         </div>
 
         {/* 2. Estimated People (Backend does not provide discrete count -> display -- or NOT AVAILABLE) */}

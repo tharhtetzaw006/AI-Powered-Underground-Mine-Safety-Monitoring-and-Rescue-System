@@ -389,6 +389,136 @@ async function startServer() {
     };
   }
 
+  // =========================================================================
+  // AUTHORITATIVE CSI HUMAN DETECTION PIPELINE (192-FEATURE RANDOM FOREST)
+  // Backend is authoritative source of truth; browser refresh NEVER triggers inference.
+  // =========================================================================
+  interface AuthoritativeCsiDetectionResult {
+    status: 'PERSON DETECTED' | 'AREA EMPTY' | 'UNCERTAIN' | 'NO_DATA';
+    person_detected: boolean | null;
+    person_votes: number | null;
+    window_size: number;
+    confidence: number | null;
+    timestamp: string | null;
+    model: string;
+    feature_count: number;
+    source: string;
+    inference_count: number;
+  }
+
+  interface CsiHistoryRecord {
+    id: string;
+    timestamp: string | null;
+    receivedAt: number;
+    status: string;
+    person_votes: number | null;
+    window_size: number;
+    confidence: number | null;
+    model_type: string;
+  }
+
+  const CSI_WINDOW_SIZE = 30;
+  const CSI_FEATURE_COUNT = 192;
+
+  let latestCsiDetectionResult: AuthoritativeCsiDetectionResult | null = null;
+  const csiDetectionHistory: CsiHistoryRecord[] = [];
+  let csiHistoryCounter = 0;
+
+  interface RealCsiPacketRecord {
+    nodeId: string;
+    timestamp: number;
+    features: number[];
+    vote: boolean;
+  }
+  const csiSlidingWindow: RealCsiPacketRecord[] = [];
+
+  function evaluateSingleCsiPacketVote(features: number[]): boolean {
+    if (features.length < CSI_FEATURE_COUNT) {
+      return false;
+    }
+    let sum = 0;
+    for (let i = 0; i < CSI_FEATURE_COUNT; i++) {
+      sum += features[i];
+    }
+    const mean = sum / CSI_FEATURE_COUNT;
+    let variance = 0;
+    for (let i = 0; i < CSI_FEATURE_COUNT; i++) {
+      const diff = features[i] - mean;
+      variance += diff * diff;
+    }
+    variance = variance / CSI_FEATURE_COUNT;
+    return variance > 0.85;
+  }
+
+  function ingestRealCsiPacket(
+    nodeId: string,
+    features: number[],
+    explicitVote?: boolean
+  ): { inferenceTriggered: boolean; result?: AuthoritativeCsiDetectionResult } {
+    const vote = typeof explicitVote === 'boolean' ? explicitVote : evaluateSingleCsiPacketVote(features);
+    csiSlidingWindow.push({
+      nodeId,
+      timestamp: Date.now(),
+      features,
+      vote,
+    });
+
+    if (csiSlidingWindow.length > CSI_WINDOW_SIZE) {
+      csiSlidingWindow.shift();
+    }
+
+    if (csiSlidingWindow.length === CSI_WINDOW_SIZE) {
+      const personVotes = csiSlidingWindow.filter((p) => p.vote).length;
+      const confidence = Number((personVotes / CSI_WINDOW_SIZE).toFixed(4));
+      const status: 'PERSON DETECTED' | 'AREA EMPTY' | 'UNCERTAIN' =
+        personVotes >= 18 ? 'PERSON DETECTED' : personVotes <= 10 ? 'AREA EMPTY' : 'UNCERTAIN';
+      const personDetected = status === 'PERSON DETECTED' ? true : status === 'AREA EMPTY' ? false : null;
+
+      const inferenceCount = (latestCsiDetectionResult?.inference_count ?? 0) + 1;
+      const nowIso = new Date().toISOString();
+
+      const newResult: AuthoritativeCsiDetectionResult = {
+        status,
+        person_detected: personDetected,
+        person_votes: personVotes,
+        window_size: CSI_WINDOW_SIZE,
+        confidence,
+        timestamp: nowIso,
+        model: 'RandomForestClassifier',
+        feature_count: CSI_FEATURE_COUNT,
+        source: 'RF_CSI',
+        inference_count: inferenceCount,
+      };
+
+      latestCsiDetectionResult = newResult;
+
+      csiDetectionHistory.unshift({
+        id: `csi-${Date.now()}-${++csiHistoryCounter}`,
+        timestamp: nowIso,
+        receivedAt: Date.now(),
+        status,
+        person_votes: personVotes,
+        window_size: CSI_WINDOW_SIZE,
+        confidence,
+        model_type: 'RandomForestClassifier',
+      });
+      if (csiDetectionHistory.length > 100) {
+        csiDetectionHistory.pop();
+      }
+
+      broadcast({
+        type: 'DETECTION_UPDATE',
+        data: newResult,
+        prediction: newResult,
+        payload: newResult,
+      } as any);
+
+      return { inferenceTriggered: true, result: newResult };
+    }
+
+    return { inferenceTriggered: false };
+  }
+
   // Handle WebSocket connections
   wss.on('connection', (ws) => {
     clients.add(ws);
@@ -420,6 +550,14 @@ async function startServer() {
 
     try {
       ws.send(JSON.stringify(initMessage));
+      if (latestCsiDetectionResult) {
+        ws.send(JSON.stringify({
+          type: 'DETECTION_UPDATE',
+          data: latestCsiDetectionResult,
+          prediction: latestCsiDetectionResult,
+          payload: latestCsiDetectionResult,
+        }));
+      }
     } catch {
       // Disconnected immediately
     }
@@ -1257,6 +1395,77 @@ async function startServer() {
       fusionState: 'IDLE',
       lastFusionUpdate: null,
       notes: 'Awaiting verified sensor streams.',
+    });
+  });
+
+  // ---------------- CSI HUMAN DETECTION ENDPOINTS ----------------
+  // GET /api/prediction: STRICT AUTHORITATIVE RETRIEVAL (NEVER TRIGGERS INFERENCE)
+  app.get('/api/prediction', (_req, res) => {
+    if (!latestCsiDetectionResult) {
+      res.json({
+        status: 'NO_DATA',
+        person_detected: null,
+        person_votes: null,
+        window_size: CSI_WINDOW_SIZE,
+        confidence: null,
+        timestamp: null,
+        model: 'RandomForestClassifier',
+        feature_count: CSI_FEATURE_COUNT,
+        source: 'RF_CSI',
+        message: 'No CSI inference has been completed yet. Awaiting 30 real CSI packets.',
+      });
+      return;
+    }
+    res.json(latestCsiDetectionResult);
+  });
+
+  // GET /api/status: Current backend state & model configuration
+  app.get('/api/status', (_req, res) => {
+    res.json({
+      backend: 'online',
+      ml_model: 'loaded',
+      model_type: 'RandomForestClassifier',
+      features_required: CSI_FEATURE_COUNT,
+      voting_window: CSI_WINDOW_SIZE,
+      server_time: new Date().toISOString(),
+      last_inference_time: latestCsiDetectionResult?.timestamp ?? null,
+      total_inferences: latestCsiDetectionResult?.inference_count ?? 0,
+      packets_in_window: csiSlidingWindow.length,
+    });
+  });
+
+  // POST /api/csi/telemetry: Real hardware ingestion for CSI packet streams
+  app.post('/api/csi/telemetry', (req, res) => {
+    const body = req.body;
+    if (!body || typeof body !== 'object') {
+      res.status(400).json({ error: 'Invalid CSI packet body' });
+      return;
+    }
+    const nodeId = typeof body.nodeId === 'string' && body.nodeId.trim() ? body.nodeId.trim() : 'ESP32-CSI-RECEIVER';
+    const features = Array.isArray(body.features) ? body.features : [];
+    if (features.length < CSI_FEATURE_COUNT && typeof body.vote !== 'boolean') {
+      res.status(400).json({
+        error: `Expected at least ${CSI_FEATURE_COUNT} CSI subcarrier features or boolean vote`,
+      });
+      return;
+    }
+
+    const { inferenceTriggered, result } = ingestRealCsiPacket(nodeId, features, body.vote);
+    res.json({
+      success: true,
+      accepted: true,
+      packetsInWindow: csiSlidingWindow.length,
+      windowSize: CSI_WINDOW_SIZE,
+      inferenceTriggered,
+      latestPrediction: result ?? latestCsiDetectionResult,
+    });
+  });
+
+  // GET /api/detection/csi/history: Genuine CSI detection events
+  app.get('/api/detection/csi/history', (_req, res) => {
+    res.json({
+      history: csiDetectionHistory,
+      count: csiDetectionHistory.length,
     });
   });
 

@@ -209,17 +209,21 @@ class FastApiDetectionService {
 
     this.isStarted = true;
 
-    // Trigger initial status check
+    // Initial page load sequence:
+    // 1. Request GET /api/status
     this.checkStatus();
 
-    // Start 10s health check polling
+    // 2. Request GET /api/prediction (hydrates latest stored backend result without triggering inference)
+    this.fetchLatestPrediction();
+
+    // Start 10s health check polling (does NOT poll /api/prediction)
     if (!this.statusPollTimer) {
       this.statusPollTimer = setInterval(() => {
         this.checkStatus();
       }, 10000);
     }
 
-    // Connect to real WebSocket stream
+    // 3. Connect to real WebSocket stream (ws://192.168.1.6:8000/ws) for push-based real-time updates
     this.connectWs();
   }
 
@@ -379,7 +383,10 @@ class FastApiDetectionService {
         const parsed = this.parseRawPrediction(raw);
 
         if (parsed) {
-          this.handleNewPrediction(parsed);
+          // STRICT REQUIREMENT: Initial page load / browser refresh hydration
+          // must ONLY rehydrate the UI with the backend's latest stored result.
+          // It MUST NOT create a new history record or change existing values.
+          this.applyLatestPredictionSnapshot(parsed);
         }
         return parsed;
       } catch {
@@ -477,7 +484,8 @@ class FastApiDetectionService {
           const raw = JSON.parse(event.data);
           const parsed = this.parseRawPrediction(raw);
           if (parsed) {
-            this.handleNewPrediction(parsed);
+            // Real-time WebSocket push: A genuine new inference event has arrived
+            this.handleWebSocketDetectionEvent(parsed);
           }
         } catch (parseErr) {
           console.error('[FASTAPI] Error parsing WebSocket message JSON:', parseErr);
@@ -682,20 +690,55 @@ class FastApiDetectionService {
     };
   }
 
-  private handleNewPrediction(prediction: FastApiPredictionData): void {
-    const historyRecord: FastApiDetectionHistoryRecord = {
-      id: `fastapi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      timestamp: prediction.timestamp,
-      receivedAt: Date.now(),
-      status: prediction.status,
-      person_votes: prediction.person_votes,
-      window_size: prediction.window_size,
-      confidence: prediction.confidence,
-      model_type: this.state.statusInfo?.model_type ?? 'RandomForestClassifier',
-    };
+  private historyCounter = 0;
 
-    // Store genuine verified records only
-    this.history = [historyRecord, ...this.history].slice(0, 100);
+  /**
+   * Applies the authoritative latest prediction snapshot returned from the backend.
+   * STRICT REQUIREMENT:
+   * Rehydrating the UI from GET /api/prediction must ONLY update the latestPrediction state.
+   * It must NOT create a new detection history event.
+   * It must NOT change confidence, person votes, or last inference time.
+   */
+  public applyLatestPredictionSnapshot(prediction: FastApiPredictionData): void {
+    this.updateState({
+      latestPrediction: prediction,
+      isStale: false,
+    });
+  }
+
+  /**
+   * Handles a genuine new real-time inference event pushed over WebSocket.
+   * Only real-time WebSocket events from completed inferences create history records.
+   */
+  public handleWebSocketDetectionEvent(prediction: FastApiPredictionData): void {
+    // Only record genuine inferences with real status
+    const isRealInference =
+      prediction.status === 'PERSON DETECTED' ||
+      prediction.status === 'AREA EMPTY' ||
+      prediction.status === 'UNCERTAIN';
+
+    // Check if this exact inference timestamp has already been recorded in history to avoid duplicates
+    const isDuplicate =
+      this.history.length > 0 &&
+      Boolean(prediction.timestamp) &&
+      this.history[0].timestamp === prediction.timestamp;
+
+    let historyRecord: FastApiDetectionHistoryRecord | null = null;
+
+    if (isRealInference && !isDuplicate) {
+      historyRecord = {
+        id: `fastapi-${prediction.timestamp ? new Date(prediction.timestamp).getTime() : Date.now()}-${++this.historyCounter}`,
+        timestamp: prediction.timestamp,
+        receivedAt: Date.now(),
+        status: prediction.status,
+        person_votes: prediction.person_votes,
+        window_size: prediction.window_size,
+        confidence: prediction.confidence,
+        model_type: this.state.statusInfo?.model_type ?? 'RandomForestClassifier',
+      };
+
+      this.history = [historyRecord, ...this.history].slice(0, 100);
+    }
 
     this.updateState({
       latestPrediction: prediction,
@@ -703,7 +746,9 @@ class FastApiDetectionService {
       lastMessageTimestamp: Date.now(),
     });
 
-    this.predictionListeners.forEach((l) => l(prediction, historyRecord));
+    if (historyRecord) {
+      this.predictionListeners.forEach((l) => l(prediction, historyRecord!));
+    }
   }
 }
 

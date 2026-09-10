@@ -197,6 +197,7 @@ export class ProductionDetectionEngine implements DetectionEngine {
   private modelAdapter: HumanDetectionModelAdapter | null = null;
   private nodeStates = new Map<string, PerNodeDetectionState>();
   private history: DetectionEventRecord[] = [];
+  private historyCounter = 0;
   private lastGlobalInferenceTime: number | null = null;
   private lastGlobalInferenceStatus: DetectionStatus | null = null;
 
@@ -410,7 +411,7 @@ export class ProductionDetectionEngine implements DetectionEngine {
       // 5. Record history ONLY when genuine inference occurred
       if (realResult.status === 'HUMAN_DETECTED' || realResult.status === 'NO_HUMAN') {
         const historyRecord: DetectionEventRecord = {
-          id: `det-${input.nodeId}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          id: `det-${input.nodeId}-${Date.now()}-${++this.historyCounter}`,
           nodeId: input.nodeId,
           timestamp: realResult.inferenceTimestamp || Date.now(),
           status: realResult.status,
