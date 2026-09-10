@@ -132,6 +132,7 @@ export interface GatewayStats {
 }
 
 export * from './detection.ts';
+export * from './events.ts';
 
 export interface IngestionResponse {
   accepted: boolean;
@@ -148,16 +149,22 @@ export interface WebSocketMessage {
     | 'TELEMETRY_UPDATE'
     | 'NODE_STATUS_UPDATE'
     | 'GATEWAY_STATS'
+    | 'SYSTEM_STATUS_UPDATE'
+    | 'EVENT_LOG_UPDATE'
+    | 'RADAR_UPDATE'
     | 'ERROR'
     | 'telemetry'
     | 'node_status'
     | 'DETECTION_UPDATE'
     | 'detection';
-  payload?: any;
   nodeId?: string;
+  timestamp?: number | string;
+  data?: any;
+  payload?: any;
   telemetry?: SensorTelemetry;
   status?: string;
   node?: NodeStatus;
   derivedMetrics?: any;
   detection?: any;
+  prediction?: any;
 }

@@ -14,11 +14,13 @@ export const SystemHealthSummary: React.FC<SystemHealthSummaryProps> = ({ id }) 
   const onlineNodes = nodes.filter((n) => n.status === 'ONLINE');
 
   // A. Backend server status
-  const backendStatus: 'ONLINE' | 'OFFLINE' | 'CONNECTING' =
+  const backendStatus: 'ONLINE' | 'OFFLINE' | 'CONNECTING' | 'RECONNECTING' =
     connectionStatus === 'CONNECTED'
       ? 'ONLINE'
       : connectionStatus === 'CONNECTING'
       ? 'CONNECTING'
+      : connectionStatus === 'RECONNECTING'
+      ? 'RECONNECTING'
       : 'OFFLINE';
 
   // B. Gateway Wi-Fi/LAN connection (ESP32 Gateway actively POSTing)

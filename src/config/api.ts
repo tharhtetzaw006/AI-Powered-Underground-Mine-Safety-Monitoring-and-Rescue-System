@@ -2,32 +2,19 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  * 
- * Centralized configuration for the remote FastAPI backend or integrated telemetry server.
+ * Centralized configuration for the remote FastAPI backend.
+ * Default points to the dedicated LAN machine running FastAPI Human Detection service:
+ * http://192.168.1.6:8000 & ws://192.168.1.6:8000/ws
  */
-
-const getBrowserOrigin = (): string => {
-  if (typeof window !== 'undefined' && window.location?.origin) {
-    return window.location.origin;
-  }
-  return 'http://localhost:3000';
-};
-
-const getBrowserWsUrl = (): string => {
-  if (typeof window !== 'undefined' && window.location?.host) {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${window.location.host}/ws`;
-  }
-  return 'ws://localhost:3000/ws';
-};
 
 export const API_BASE_URL =
   import.meta.env.VITE_FASTAPI_BASE_URL ||
   import.meta.env.VITE_FASTAPI_URL ||
-  getBrowserOrigin();
+  'http://192.168.1.6:8000';
 
 export const WS_URL =
   import.meta.env.VITE_FASTAPI_WS_URL ||
-  getBrowserWsUrl();
+  'ws://192.168.1.6:8000/ws';
 
 export const STATUS_URL = `${API_BASE_URL}/api/status`;
 export const STATUS_ENDPOINT = STATUS_URL;

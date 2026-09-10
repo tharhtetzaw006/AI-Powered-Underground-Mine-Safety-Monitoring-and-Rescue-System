@@ -15,11 +15,13 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
   const { connectionStatus, gatewayStats, lastUpdateTime, nodes, activeNodeId } = useLiveData();
 
   // A. Backend server status (WebSocket connection to Node.js backend)
-  const backendStatus: 'ONLINE' | 'OFFLINE' | 'CONNECTING' =
+  const backendStatus: 'ONLINE' | 'OFFLINE' | 'CONNECTING' | 'RECONNECTING' =
     connectionStatus === 'CONNECTED'
       ? 'ONLINE'
       : connectionStatus === 'CONNECTING'
       ? 'CONNECTING'
+      : connectionStatus === 'RECONNECTING'
+      ? 'RECONNECTING'
       : 'OFFLINE';
 
   // B. Gateway Wi-Fi/LAN connection (ESP32 gateway communicating with /api/telemetry)

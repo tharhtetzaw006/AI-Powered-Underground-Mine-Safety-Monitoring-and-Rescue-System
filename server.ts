@@ -851,7 +851,15 @@ async function startServer() {
     // 3. Acceleration Variance over node window
     const accelMags = nodeRecord.telemetryWindow
       .map((t) => {
-        if (!t.acceleration || typeof t.acceleration.x !== 'number') return null;
+        if (
+          !t.acceleration ||
+          typeof t.acceleration.x !== 'number' ||
+          typeof t.acceleration.y !== 'number' ||
+          typeof t.acceleration.z !== 'number'
+        ) {
+          return null;
+        }
+
         const { x, y, z } = t.acceleration;
         return Math.sqrt(x * x + y * y + z * z);
       })
@@ -867,7 +875,15 @@ async function startServer() {
     // 4. Gyroscope Variance over node window
     const gyroMags = nodeRecord.telemetryWindow
       .map((t) => {
-        if (!t.gyroscope || typeof t.gyroscope.x !== 'number') return null;
+        if (
+          !t.gyroscope ||
+          typeof t.gyroscope.x !== 'number' ||
+          typeof t.gyroscope.y !== 'number' ||
+          typeof t.gyroscope.z !== 'number'
+        ) {
+          return null;
+        }
+
         const { x, y, z } = t.gyroscope;
         return Math.sqrt(x * x + y * y + z * z);
       })
@@ -962,28 +978,26 @@ async function startServer() {
     const nodeHealth = determineNodeHealth(nodeRecord);
 
     broadcast({
-      type: 'telemetry' as any,
-      nodeId,
-      telemetry,
-      payload: telemetry,
-    });
-
-    broadcast({
-      type: 'node_status' as any,
-      nodeId,
-      status: nodeHealth.status,
-      node: nodeHealth,
-      payload: getAllNodeStatuses(),
-    });
-
-    broadcast({
       type: 'TELEMETRY_UPDATE',
+      nodeId,
+      timestamp: telemetry.serverReceiveTime || Date.now(),
+      data: telemetry,
       payload: telemetry,
+      telemetry,
     });
 
     broadcast({
       type: 'NODE_STATUS_UPDATE',
+      nodeId,
+      timestamp: Date.now(),
+      data: {
+        node: nodeHealth,
+        nodes: getAllNodeStatuses(),
+        status: nodeHealth.status,
+      },
       payload: getAllNodeStatuses(),
+      node: nodeHealth,
+      status: nodeHealth.status,
     });
 
     // Extract real sensor features and evaluate human/life detection pipeline
@@ -1008,12 +1022,8 @@ async function startServer() {
           broadcast({
             type: 'DETECTION_UPDATE',
             nodeId,
-            payload: detectionResult,
-            detection: detectionResult,
-          });
-          broadcast({
-            type: 'detection',
-            nodeId,
+            timestamp: Date.now(),
+            data: detectionResult,
             payload: detectionResult,
             detection: detectionResult,
           });
@@ -1047,11 +1057,17 @@ async function startServer() {
           rec.previousConnectionState = health.status;
 
           broadcast({
-            type: 'node_status' as any,
+            type: 'NODE_STATUS_UPDATE',
             nodeId: id,
-            status: health.status,
-            node: health,
+            timestamp: Date.now(),
+            data: {
+              node: health,
+              nodes: getAllNodeStatuses(),
+              status: health.status,
+            },
             payload: getAllNodeStatuses(),
+            node: health,
+            status: health.status,
           });
         }
       }
@@ -1059,10 +1075,18 @@ async function startServer() {
       if (clients.size > 0) {
         broadcast({
           type: 'NODE_STATUS_UPDATE',
+          timestamp: Date.now(),
+          data: getAllNodeStatuses(),
           payload: getAllNodeStatuses(),
         });
         broadcast({
-          type: 'GATEWAY_STATS',
+          type: 'SYSTEM_STATUS_UPDATE',
+          timestamp: Date.now(),
+          data: {
+            gatewayStats: getGatewayStats(),
+            registeredNodesCount: nodeRegistry.size,
+            activeWebSocketClients: clients.size,
+          },
           payload: getGatewayStats(),
         });
       }

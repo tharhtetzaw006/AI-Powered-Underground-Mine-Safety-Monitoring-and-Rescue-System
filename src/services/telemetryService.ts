@@ -19,8 +19,9 @@ import {
   DetectionEventRecord,
 } from '../types/telemetry.ts';
 import { RadarTelemetry } from '../types/radar.ts';
+import { LiveEvent, validateLiveEvent } from '../types/events.ts';
 
-export type ConnectionStatus = 'CONNECTING' | 'CONNECTED' | 'DISCONNECTED' | 'ERROR';
+export type ConnectionStatus = 'CONNECTING' | 'CONNECTED' | 'DISCONNECTED' | 'RECONNECTING' | 'ERROR';
 
 export type TelemetryListener = (telemetry: SensorTelemetry) => void;
 export type NodeStatusListener = (nodes: NodeStatus[]) => void;
@@ -90,7 +91,20 @@ export class LiveWebSocketTelemetryService implements ITelemetryService {
       return;
     }
 
-    this.setStatus('CONNECTING');
+    if (this.ws) {
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
+      this.ws.onerror = null;
+      this.ws.onclose = null;
+      try {
+        this.ws.close();
+      } catch {
+        // Safe ignore
+      }
+      this.ws = null;
+    }
+
+    this.setStatus(this.reconnectAttempts > 0 ? 'RECONNECTING' : 'CONNECTING');
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws`;
@@ -101,16 +115,19 @@ export class LiveWebSocketTelemetryService implements ITelemetryService {
       this.ws.onopen = () => {
         this.reconnectAttempts = 0;
         this.setStatus('CONNECTED');
-        // Request initial full state sync
+        // Hydrate initial full state sync
         this.fetchInitialState();
       };
 
       this.ws.onmessage = (event: MessageEvent) => {
         try {
-          const msg: WebSocketMessage = JSON.parse(event.data);
-          this.handleServerMessage(msg);
-        } catch {
-          // Ignore unparseable or corrupted wire frames without crashing
+          const raw = JSON.parse(event.data);
+          const liveEvent = validateLiveEvent(raw);
+          if (liveEvent) {
+            this.handleLiveEvent(liveEvent);
+          }
+        } catch (err) {
+          console.error('WebSocket parse error: unparseable frame payload', err);
         }
       };
 
@@ -121,8 +138,9 @@ export class LiveWebSocketTelemetryService implements ITelemetryService {
       this.ws.onclose = () => {
         this.ws = null;
         if (!this.isIntentionallyClosed) {
-          this.setStatus('DISCONNECTED');
           this.scheduleReconnect();
+        } else {
+          this.setStatus('DISCONNECTED');
         }
       };
     } catch (err) {
@@ -133,6 +151,7 @@ export class LiveWebSocketTelemetryService implements ITelemetryService {
 
   private scheduleReconnect(): void {
     if (this.reconnectTimer || this.isIntentionallyClosed) return;
+    this.setStatus('RECONNECTING');
     const delay = Math.min(1000 * Math.pow(1.5, this.reconnectAttempts), this.maxReconnectDelay);
     this.reconnectAttempts++;
     this.reconnectTimer = setTimeout(() => {
@@ -148,93 +167,106 @@ export class LiveWebSocketTelemetryService implements ITelemetryService {
       this.reconnectTimer = null;
     }
     if (this.ws) {
-      this.ws.close();
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
+      this.ws.onerror = null;
+      this.ws.onclose = null;
+      try {
+        this.ws.close();
+      } catch {
+        // Safe ignore
+      }
       this.ws = null;
     }
     this.setStatus('DISCONNECTED');
   }
 
-  private handleServerMessage(msg: WebSocketMessage): void {
-    if (!msg || !msg.type) return;
-
-    switch (msg.type as string) {
-      case 'TELEMETRY_UPDATE':
-      case 'telemetry': {
-        const telemetryObj = ((msg as any).telemetry || msg.payload) as SensorTelemetry | undefined;
-        if (telemetryObj && typeof telemetryObj === 'object' && telemetryObj.nodeId) {
-          this.telemetryListeners.forEach((listener) => listener(telemetryObj));
+  private handleLiveEvent(event: LiveEvent): void {
+    switch (event.type) {
+      case 'TELEMETRY_UPDATE': {
+        const telemetry = event.data;
+        if (telemetry && typeof telemetry === 'object' && telemetry.nodeId) {
+          this.telemetryListeners.forEach((listener) => listener(telemetry));
         }
         break;
       }
 
-      case 'NODE_STATUS_UPDATE':
-      case 'node_status': {
-        if (Array.isArray(msg.payload)) {
-          this.nodeStatusListeners.forEach((listener) => listener(msg.payload as NodeStatus[]));
-        } else if ((msg as any).node && typeof (msg as any).node === 'object') {
-          const singleNode = (msg as any).node as NodeStatus;
-          // Refresh list or trigger node listeners
-          this.fetchAllNodes().then((nodes) => {
-            this.nodeStatusListeners.forEach((listener) => listener(nodes));
-          }).catch(() => {
-            this.nodeStatusListeners.forEach((listener) => listener([singleNode]));
-          });
-        }
-        break;
-      }
-
-      case 'INIT_SNAPSHOT':
-        if (msg.payload) {
-          if (Array.isArray(msg.payload.nodes)) {
-            this.nodeStatusListeners.forEach((listener) => listener(msg.payload.nodes as NodeStatus[]));
-          }
-          if (msg.payload.latestTelemetry && typeof msg.payload.latestTelemetry === 'object') {
-            const telemetryRecord = msg.payload.latestTelemetry as Record<string, SensorTelemetry>;
-            Object.values(telemetryRecord).forEach((t) => {
-              if (t) {
-                this.telemetryListeners.forEach((listener) => listener(t));
-              }
+      case 'NODE_STATUS_UPDATE': {
+        const rawNodes = event.data;
+        if (Array.isArray(rawNodes)) {
+          const list = rawNodes as NodeStatus[];
+          this.nodeStatusListeners.forEach((listener) => listener(list));
+        } else if (rawNodes && typeof rawNodes === 'object') {
+          const obj = rawNodes as { node?: NodeStatus; nodes?: NodeStatus[]; status?: string };
+          if (Array.isArray(obj.nodes)) {
+            this.nodeStatusListeners.forEach((listener) => listener(obj.nodes));
+          } else if (obj.node) {
+            const single = obj.node;
+            this.fetchAllNodes().then((nodes) => {
+              this.nodeStatusListeners.forEach((l) => l(nodes));
+            }).catch(() => {
+              this.nodeStatusListeners.forEach((l) => l([single]));
             });
           }
-          if (msg.payload.gatewayStats) {
-            this.gatewayStatsListeners.forEach((listener) => listener(msg.payload.gatewayStats));
+        }
+        break;
+      }
+
+      case 'INIT_SNAPSHOT': {
+        const snapshot = event.data;
+        if (snapshot) {
+          if (Array.isArray(snapshot.nodes)) {
+            this.nodeStatusListeners.forEach((listener) => listener(snapshot.nodes));
           }
-          if (Array.isArray(msg.payload.events)) {
-            (msg.payload.events as SystemEventLog[]).forEach((ev) => {
+          if (snapshot.latestTelemetry && typeof snapshot.latestTelemetry === 'object') {
+            Object.values(snapshot.latestTelemetry).forEach((t) => {
+              if (t) this.telemetryListeners.forEach((listener) => listener(t));
+            });
+          }
+          if (snapshot.gatewayStats) {
+            this.gatewayStatsListeners.forEach((listener) => listener(snapshot.gatewayStats));
+          }
+          if (Array.isArray(snapshot.events)) {
+            snapshot.events.forEach((ev) => {
               this.eventLogListeners.forEach((listener) => listener(ev));
             });
           }
-          if (msg.payload.latestRadar) {
-            this.radarListeners.forEach((listener) => listener(msg.payload.latestRadar as RadarTelemetry));
+          if (snapshot.latestRadar) {
+            this.radarListeners.forEach((listener) => listener(snapshot.latestRadar as RadarTelemetry));
           }
-        }
-        break;
-
-      case 'GATEWAY_STATS':
-        if (msg.payload) {
-          this.gatewayStatsListeners.forEach((listener) => listener(msg.payload as GatewayStats));
-        }
-        break;
-
-      case 'EVENT_LOG_UPDATE' as any:
-        if (msg.payload) {
-          this.eventLogListeners.forEach((listener) => listener(msg.payload as SystemEventLog));
-        }
-        break;
-
-      case 'DETECTION_UPDATE':
-      case 'detection': {
-        const detObj = ((msg as any).detection || msg.payload) as HumanDetectionResult | undefined;
-        if (detObj && typeof detObj === 'object' && detObj.nodeId) {
-          this.detectionListeners.forEach((listener) => listener(detObj));
         }
         break;
       }
 
-      case 'RADAR_UPDATE' as any: {
-        const radarData = ((msg as any).data || (msg as any).telemetry || msg.payload) as RadarTelemetry | undefined;
-        if (radarData && typeof radarData === 'object' && radarData.deviceId) {
-          this.radarListeners.forEach((listener) => listener(radarData));
+      case 'SYSTEM_STATUS_UPDATE': {
+        if (event.data) {
+          const stats = (event.data as any).gatewayStats || (event.data as GatewayStats);
+          if (stats && typeof stats === 'object') {
+            this.gatewayStatsListeners.forEach((listener) => listener(stats));
+          }
+        }
+        break;
+      }
+
+      case 'EVENT_LOG_UPDATE': {
+        if (event.data) {
+          this.eventLogListeners.forEach((listener) => listener(event.data));
+        }
+        break;
+      }
+
+      case 'DETECTION_UPDATE': {
+        const det = event.data;
+        if (det && typeof det === 'object') {
+          this.detectionListeners.forEach((listener) => listener(det));
+        }
+        break;
+      }
+
+      case 'RADAR_UPDATE': {
+        const radar = event.data;
+        if (radar && typeof radar === 'object' && radar.deviceId) {
+          this.radarListeners.forEach((listener) => listener(radar));
         }
         break;
       }

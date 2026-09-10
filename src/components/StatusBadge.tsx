@@ -55,7 +55,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
   if (['ONLINE', 'HEALTHY', 'NORMAL', 'CONNECTED', 'VALID', 'RECEIVING', 'RESOLVED', 'OK'].includes(norm)) {
     colorClasses = 'bg-[#071a0e] text-[#22C55E] border-[#1b4d29]';
     dotColor = 'bg-[#22C55E]';
-  } else if (['STALE', 'DEGRADED', 'LOW', 'CONNECTING', 'WARNING', 'WEAK', 'PARTIAL'].includes(norm)) {
+  } else if (['STALE', 'DEGRADED', 'LOW', 'CONNECTING', 'RECONNECTING', 'WARNING', 'WEAK', 'PARTIAL'].includes(norm)) {
     colorClasses = 'bg-[#1c1203] text-[#F59E0B] border-[#5e3805]';
     dotColor = 'bg-[#F59E0B]';
   } else if (['OFFLINE', 'ERROR', 'CRITICAL', 'DISCONNECTED', 'INVALID', 'ACTIVE'].includes(norm)) {

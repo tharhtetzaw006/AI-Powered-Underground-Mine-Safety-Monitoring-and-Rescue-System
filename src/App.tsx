@@ -27,6 +27,7 @@ import {
   Terminal,
   LineChart,
   Compass,
+  WifiOff,
 } from 'lucide-react';
 
 function DashboardMain() {
@@ -88,6 +89,33 @@ function DashboardMain() {
 
         {/* Dynamic Main Content Area - Full Screen Edge-to-Edge Scrollable */}
         <main className="flex-1 min-w-0 overflow-y-auto p-3 sm:p-4 space-y-3">
+          {/* Live Connection Lifecycle Banner (Section 14) */}
+          {connectionStatus !== 'CONNECTED' && (
+            <div
+              id="live-connection-banner"
+              className={`px-3.5 py-2 rounded flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-mono border ${
+                connectionStatus === 'RECONNECTING' || connectionStatus === 'CONNECTING'
+                  ? 'bg-[#1c1203] border-[#5e3805] text-[#F59E0B]'
+                  : 'bg-[#1f0505] border-[#6b1414] text-[#EF4444]'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <WifiOff className="w-4 h-4 shrink-0" />
+                <span>
+                  <strong>LIVE CONNECTION: {connectionStatus}</strong> &bull;{' '}
+                  {connectionStatus === 'RECONNECTING'
+                    ? 'Attempting automatic reconnect with exponential backoff...'
+                    : connectionStatus === 'CONNECTING'
+                    ? 'Establishing WebSocket stream to backend...'
+                    : 'Stream disconnected.'}
+                </span>
+              </div>
+              <span className="text-[10px] uppercase font-bold tracking-wider opacity-80">
+                LAST VALID DATA PRESERVED
+              </span>
+            </div>
+          )}
+
           {/* Node Selector Ribbon */}
           <NodeSelector />
 

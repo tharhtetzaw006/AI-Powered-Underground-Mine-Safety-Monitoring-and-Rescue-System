@@ -17,11 +17,13 @@ export const Header: React.FC<HeaderProps> = ({
   const onlineNodes = nodes.filter((n) => n.status === 'ONLINE');
 
   // A. Backend Server Status
-  const backendStatus: 'ONLINE' | 'OFFLINE' | 'CONNECTING' =
+  const backendStatus: 'ONLINE' | 'OFFLINE' | 'CONNECTING' | 'RECONNECTING' =
     connectionStatus === 'CONNECTED'
       ? 'ONLINE'
       : connectionStatus === 'CONNECTING'
       ? 'CONNECTING'
+      : connectionStatus === 'RECONNECTING'
+      ? 'RECONNECTING'
       : 'OFFLINE';
 
   // B. Gateway Wi-Fi/LAN connection (actual ESP32 gateway ingestion)
