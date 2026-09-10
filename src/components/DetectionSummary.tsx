@@ -185,39 +185,6 @@ export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
         </div>
       </div>
 
-      {/* Mixed Content Security Restriction Banner (When run inside HTTPS cloud preview) */}
-      {diag.isHttpsContext && diag.mixedContentRisk && (
-        <div className="p-3 rounded bg-[#1C0F00] border border-[#B45309] text-[#F59E0B] space-y-2">
-          <div className="flex items-start gap-2.5">
-            <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5 text-[#F59E0B]" />
-            <div className="space-y-1 w-full">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wide text-[#FDE68A]">
-                  Browser Security Restriction: Mixed Content & Private Network Access
-                </span>
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#2D1600] text-[#FBBF24] border border-[#B45309]/50">
-                  HTTPS PREVIEW DETECTED
-                </span>
-              </div>
-              <p className="text-[11px] leading-relaxed text-[#FDE68A]">
-                The current AI Studio preview is loaded over secure <strong>HTTPS</strong> ({diag.currentOrigin}). Modern web browsers strictly block active mixed-content subresource calls to unencrypted HTTP endpoints (<code>http://192.168.1.6:8000</code>) and insecure WebSockets (<code>ws://192.168.1.6:8000/ws</code>) on private LAN IPs.
-              </p>
-              <div className="text-[10px] leading-relaxed text-[#D97706] pt-1.5 border-t border-[#B45309]/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div>
-                  <strong>To conduct live LAN testing:</strong> Run the frontend locally over HTTP on the Windows machine:
-                  <code className="ml-1 px-1.5 py-0.5 rounded bg-[#0A0500] text-[#FDE68A] border border-[#B45309]/40 font-mono">
-                    npm run dev &rarr; http://localhost:5173
-                  </code>
-                </div>
-                <div className="text-[9px] text-[#FBBF24] shrink-0">
-                  Direct LAN access permitted in local HTTP context
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ========================================================================= */}
       {/* SECTION 1: SENSOR FUSION ARBITRATION PANEL */}
       {/* ========================================================================= */}

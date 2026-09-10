@@ -133,6 +133,7 @@ export interface GatewayStats {
 
 export * from './detection.ts';
 export * from './events.ts';
+export * from './camera.ts';
 
 export interface IngestionResponse {
   accepted: boolean;
@@ -152,6 +153,7 @@ export interface WebSocketMessage {
     | 'SYSTEM_STATUS_UPDATE'
     | 'EVENT_LOG_UPDATE'
     | 'RADAR_UPDATE'
+    | 'CAMERA_UPDATE'
     | 'ERROR'
     | 'telemetry'
     | 'node_status'

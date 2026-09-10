@@ -27,6 +27,8 @@ import { FastApiState, FastApiDetectionHistoryRecord } from '../types/fastApiDet
 import { radarDetectionService } from '../services/radarDetectionService.ts';
 import { RadarState, SensorFusionResult } from '../types/radar.ts';
 import { computeSensorFusion } from '../services/sensorFusionService.ts';
+import { CameraTelemetry, CameraDiagnostics, OperationalMode } from '../types/camera.ts';
+import { realCameraDetectionService } from '../services/cameraDetectionService.ts';
 
 export interface LiveDataContextValue {
   connectionStatus: ConnectionStatus;
@@ -51,6 +53,14 @@ export interface LiveDataContextValue {
   fastApiHistory: FastApiDetectionHistoryRecord[];
   radarState: RadarState;
   sensorFusionResult: SensorFusionResult;
+  cameraTelemetry: CameraTelemetry;
+  cameraDiagnostics: CameraDiagnostics;
+  operationalMode: OperationalMode;
+  setOperationalMode: (mode: OperationalMode) => void;
+  startLocalCamera: (videoEl: HTMLVideoElement) => Promise<boolean>;
+  stopCamera: () => void;
+  connectNetworkStream: (url: string) => void;
+  refreshCameraStatus: () => Promise<void>;
   ingestRadarTelemetry: (raw: unknown) => boolean;
   refreshRadarStatus: () => Promise<void>;
   refreshFastApi: () => Promise<void>;
@@ -83,6 +93,11 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Real Radar Detection state
   const [radarState, setRadarState] = useState<RadarState>(radarDetectionService.getState());
+
+  // Real Optical Camera Subsystem state
+  const [cameraTelemetry, setCameraTelemetry] = useState<CameraTelemetry>(realCameraDetectionService.getTelemetry());
+  const [cameraDiagnostics, setCameraDiagnostics] = useState<CameraDiagnostics>(realCameraDetectionService.getDiagnostics());
+  const [operationalMode, setOperationalMode] = useState<OperationalMode>('VISIBLE_CAMERA');
 
 
   // Auto-select first active node if activeNodeId is null or becomes invalid
@@ -202,6 +217,23 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     });
     radarDetectionService.pollHttp('/api/radar/status', '/api/radar/latest');
 
+    // Camera service subscription & network WS listener
+    const unsubCamera = realCameraDetectionService.subscribe((telemetry) => {
+      setCameraTelemetry(telemetry);
+    });
+    const unsubCameraDiag = realCameraDetectionService.subscribeDiagnostics((diag) => {
+      setCameraDiagnostics(diag);
+    });
+    const unsubCameraWs = liveTelemetryService.onCamera((cam) => {
+      // If camera comes from remote/network, update telemetry state
+      setCameraTelemetry((prev) => {
+        if (prev.sourceType === 'LOCAL_LENS' && prev.state === 'STREAMING') {
+          return prev; // keep active local lens primary
+        }
+        return cam;
+      });
+    });
+
     return () => {
       unsubConnection();
       unsubNodes();
@@ -213,9 +245,57 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       unsubFastApiPred();
       unsubRadar();
       unsubRadarWs();
+      unsubCamera();
+      unsubCameraDiag();
+      unsubCameraWs();
       fastApiDetectionService.stop();
       liveTelemetryService.disconnect();
     };
+  }, []);
+
+  const refreshCameraStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/camera/status');
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.frameAvailable) {
+          setCameraTelemetry((prev) => {
+            if (prev.sourceType === 'LOCAL_LENS' && prev.state === 'STREAMING') return prev;
+            return {
+              cameraId: data.cameraId || 'CAM-01',
+              state: data.status || 'STREAMING',
+              timestamp: data.timestamp,
+              lastFrameTime: data.lastFrameTime,
+              frameRate: data.frameRate,
+              resolution: data.resolution,
+              visiblePeopleCount: data.visiblePeopleCount,
+              detections: data.detections || [],
+              detectionQuality: data.quality || null,
+              modelName: data.model || null,
+              modelConfidence: data.confidence || null,
+              motionState: data.motionState || null,
+              sourceType: 'NETWORK_STREAM',
+              streamUrl: null,
+              error: null,
+            };
+          });
+        }
+      }
+    } catch {
+      // Network probe failed
+    }
+  }, []);
+
+  const startLocalCamera = useCallback(async (videoEl: HTMLVideoElement): Promise<boolean> => {
+    return await realCameraDetectionService.startLocalCamera(videoEl);
+  }, []);
+
+  const stopCamera = useCallback(() => {
+    realCameraDetectionService.stopCamera();
+  }, []);
+
+  const connectNetworkStream = useCallback((url: string) => {
+    realCameraDetectionService.connectNetworkStream(url);
   }, []);
 
   const refreshFastApi = useCallback(async () => {
@@ -316,6 +396,14 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     fastApiHistory,
     radarState,
     sensorFusionResult,
+    cameraTelemetry,
+    cameraDiagnostics,
+    operationalMode,
+    setOperationalMode,
+    startLocalCamera,
+    stopCamera,
+    connectNetworkStream,
+    refreshCameraStatus,
     ingestRadarTelemetry,
     refreshRadarStatus,
     refreshFastApi,
@@ -344,6 +432,13 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     fastApiHistory,
     radarState,
     sensorFusionResult,
+    cameraTelemetry,
+    cameraDiagnostics,
+    operationalMode,
+    startLocalCamera,
+    stopCamera,
+    connectNetworkStream,
+    refreshCameraStatus,
     ingestRadarTelemetry,
     refreshRadarStatus,
     refreshFastApi,

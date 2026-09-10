@@ -521,7 +521,7 @@ async function startServer() {
   }
 
   // =========================================================================
-  // AUTHORITATIVE HARDWARE RADAR INGESTION & LIFECYCLE
+  // AUTHORITATIVE HARDWARE RADAR & CAMERA INGESTION & LIFECYCLE
   // Backend is authoritative source of truth; strictly real hardware data only.
   // =========================================================================
   const RADAR_STALE_THRESHOLD_MS = 15000;
@@ -529,6 +529,29 @@ async function startServer() {
   let latestValidatedRadarPacket: RadarTelemetry | null = null;
   let lastRadarPacketReceivedTime: number | null = null;
   let radarPacketsCount = 0;
+
+  // Real Camera Subsystem State
+  const CAMERA_STALE_THRESHOLD_MS = 4000;
+  interface ServerCameraTelemetry {
+    cameraId: string;
+    state: 'NO_CAMERA' | 'CONNECTING' | 'CONNECTED' | 'STREAMING' | 'STALE' | 'OFFLINE' | 'ERROR';
+    timestamp: number | null;
+    lastFrameTime: number | null;
+    frameRate: number | null;
+    resolution: { width: number; height: number } | null;
+    visiblePeopleCount: number | null;
+    detections: any[];
+    detectionQuality: string | null;
+    modelName: string | null;
+    modelConfidence: number | null;
+    motionState: string | null;
+    sourceType: string | null;
+    streamUrl: string | null;
+    error: string | null;
+  }
+  const cameraRegistry = new Map<string, ServerCameraTelemetry>();
+  let latestCameraTelemetry: ServerCameraTelemetry | null = null;
+  let lastCameraFrameReceivedTime: number | null = null;
 
   // Handle WebSocket connections
   wss.on('connection', (ws) => {
@@ -557,6 +580,7 @@ async function startServer() {
         gatewayStats: getGatewayStats(),
         events: systemEventsBuffer,
         latestRadar: latestValidatedRadarPacket,
+        latestCamera: latestCameraTelemetry,
       },
     };
 
@@ -575,6 +599,13 @@ async function startServer() {
           type: 'RADAR_UPDATE',
           data: latestValidatedRadarPacket,
           telemetry: latestValidatedRadarPacket,
+        }));
+      }
+      if (latestCameraTelemetry) {
+        ws.send(JSON.stringify({
+          type: 'CAMERA_UPDATE',
+          data: latestCameraTelemetry,
+          telemetry: latestCameraTelemetry,
         }));
       }
     } catch {
@@ -1471,6 +1502,142 @@ async function startServer() {
       accepted: true,
       data: telemetry,
       telemetry,
+    });
+  });
+
+  // =========================================================================
+  // CAMERA SUBSYSTEM ENDPOINTS: GET /status, GET /latest, POST /frame
+  // =========================================================================
+
+  // GET /api/camera/status: Strict typed camera connection and detection state
+  app.get('/api/camera/status', (req, res) => {
+    const cameraId = (req.query.cameraId as string) || latestCameraTelemetry?.cameraId || 'CAM-01';
+    const camera = cameraRegistry.get(cameraId) || latestCameraTelemetry;
+
+    if (!camera || !lastCameraFrameReceivedTime) {
+      res.json({
+        cameraId,
+        status: 'NO_CAMERA',
+        frameAvailable: false,
+        timestamp: null,
+        lastFrameTime: null,
+        frameRate: null,
+        resolution: null,
+        visiblePeopleCount: null,
+        detections: [],
+        detectionQuality: null,
+        model: null,
+        confidence: null,
+        motionState: null,
+        quality: null,
+        message: 'No optical camera stream connected or no frames received yet.',
+      });
+      return;
+    }
+
+    const isStale = Date.now() - (camera.lastFrameTime || 0) > CAMERA_STALE_THRESHOLD_MS;
+    const currentStatus = isStale ? 'STALE' : camera.state;
+
+    res.json({
+      cameraId: camera.cameraId,
+      status: currentStatus,
+      frameAvailable: true,
+      timestamp: camera.timestamp,
+      lastFrameTime: camera.lastFrameTime,
+      frameRate: camera.frameRate,
+      resolution: camera.resolution,
+      visiblePeopleCount: camera.visiblePeopleCount,
+      detections: camera.detections,
+      detectionQuality: camera.detectionQuality,
+      model: camera.modelName,
+      confidence: camera.modelConfidence,
+      motionState: camera.motionState,
+      quality: camera.detectionQuality,
+    });
+  });
+
+  // GET /api/camera/latest: Latest genuine camera frame metadata & detections
+  app.get('/api/camera/latest', (req, res) => {
+    const cameraId = (req.query.cameraId as string) || latestCameraTelemetry?.cameraId || 'CAM-01';
+    const camera = cameraRegistry.get(cameraId) || latestCameraTelemetry;
+
+    if (!camera) {
+      res.json({
+        status: 'NO_DATA',
+        telemetry: null,
+        message: 'No camera frames received yet.',
+      });
+      return;
+    }
+
+    res.json({
+      status: 'DATA_AVAILABLE',
+      telemetry: camera,
+      message: `Latest camera telemetry from ${camera.cameraId}`,
+    });
+  });
+
+  // POST /api/camera/frame: Hardware frame ingestion (ESP32-CAM / LAN video pipeline)
+  app.post('/api/camera/frame', (req, res) => {
+    const body = req.body;
+    if (!body || typeof body !== 'object') {
+      res.status(400).json({ success: false, accepted: false, error: 'Invalid frame payload' });
+      return;
+    }
+
+    const cameraId = body.cameraId || 'CAM-01';
+    const now = Date.now();
+    const timestamp = typeof body.timestamp === 'number' ? body.timestamp : now;
+    const width = typeof body.width === 'number' ? body.width : null;
+    const height = typeof body.height === 'number' ? body.height : null;
+    const detections = Array.isArray(body.detections) ? body.detections : [];
+    const visiblePeopleCount =
+      typeof body.visiblePeopleCount === 'number'
+        ? body.visiblePeopleCount
+        : detections.length;
+    const confidence = typeof body.confidence === 'number' ? body.confidence : null;
+    const modelName = body.modelName || body.model || 'COCO-SSD';
+    const quality = body.quality || body.detectionQuality || (width && height ? 'GOOD' : null);
+    const motionState = body.motionState || null;
+    const error = body.error || null;
+    const state = error ? 'ERROR' : 'STREAMING';
+
+    const telemetry: ServerCameraTelemetry = {
+      cameraId,
+      state,
+      timestamp,
+      lastFrameTime: now,
+      frameRate: typeof body.frameRate === 'number' ? body.frameRate : null,
+      resolution: width && height ? { width, height } : null,
+      visiblePeopleCount,
+      detections,
+      detectionQuality: quality,
+      modelName,
+      modelConfidence: confidence,
+      motionState,
+      sourceType: body.sourceType || 'ESP32_CAM',
+      streamUrl: body.streamUrl || null,
+      error,
+    };
+
+    cameraRegistry.set(cameraId, telemetry);
+    latestCameraTelemetry = telemetry;
+    lastCameraFrameReceivedTime = now;
+
+    // Broadcast over WebSocket
+    broadcast({
+      type: 'CAMERA_UPDATE',
+      data: telemetry,
+      telemetry,
+      payload: telemetry,
+    } as any);
+
+    res.json({
+      success: true,
+      accepted: true,
+      cameraId,
+      timestamp,
+      visiblePeopleCount,
     });
   });
 

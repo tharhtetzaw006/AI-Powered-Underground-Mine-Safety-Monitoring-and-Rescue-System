@@ -17,6 +17,7 @@ import {
   HumanDetectionResult,
 } from './telemetry.ts';
 import { RadarTelemetry } from './radar.ts';
+import { CameraTelemetry } from './camera.ts';
 
 /**
  * 1. Telemetry Update Event:
@@ -82,7 +83,21 @@ export interface RadarUpdateEvent {
 }
 
 /**
- * 5. System Status Update Event:
+ * 5. Camera Telemetry Update Event:
+ * Broadcast when genuine camera frame or detection telemetry arrives.
+ */
+export interface CameraUpdateEvent {
+  type: 'CAMERA_UPDATE';
+  nodeId?: string;
+  timestamp: number | string;
+  data: CameraTelemetry;
+  // Legacy aliases for backward compatibility
+  payload?: CameraTelemetry;
+  telemetry?: CameraTelemetry;
+}
+
+/**
+ * 6. System Status Update Event:
  * Broadcast periodically or on state change with gateway and system metrics.
  */
 export interface SystemStatusUpdateEvent {
@@ -111,6 +126,7 @@ export interface InitSnapshotEvent {
     gatewayStats: GatewayStats;
     events: SystemEventLog[];
     latestRadar: RadarTelemetry | null;
+    latestCamera?: CameraTelemetry | null;
   };
   payload?: {
     nodes: NodeStatus[];
@@ -119,6 +135,7 @@ export interface InitSnapshotEvent {
     gatewayStats: GatewayStats;
     events: SystemEventLog[];
     latestRadar: RadarTelemetry | null;
+    latestCamera?: CameraTelemetry | null;
   };
 }
 
@@ -141,6 +158,7 @@ export type LiveEvent =
   | NodeStatusUpdateEvent
   | DetectionUpdateEvent
   | RadarUpdateEvent
+  | CameraUpdateEvent
   | SystemStatusUpdateEvent
   | InitSnapshotEvent
   | EventLogUpdateEvent;
@@ -226,6 +244,22 @@ export function validateLiveEvent(raw: unknown): LiveEvent | null {
         data: radarObj,
         payload: radarObj,
         telemetry: radarObj,
+      };
+    }
+
+    case 'CAMERA_UPDATE': {
+      const cameraObj = (msg.data || msg.telemetry || msg.payload) as CameraTelemetry | undefined;
+      if (!cameraObj || typeof cameraObj !== 'object') {
+        console.error('WebSocket validation error: invalid CAMERA_UPDATE payload', msg);
+        return null;
+      }
+      return {
+        type: 'CAMERA_UPDATE',
+        nodeId: typeof msg.nodeId === 'string' ? msg.nodeId : cameraObj.cameraId,
+        timestamp: (msg.timestamp as number | string) || cameraObj.timestamp || Date.now(),
+        data: cameraObj,
+        payload: cameraObj,
+        telemetry: cameraObj,
       };
     }
 

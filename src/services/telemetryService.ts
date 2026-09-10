@@ -19,6 +19,7 @@ import {
   DetectionEventRecord,
 } from '../types/telemetry.ts';
 import { RadarTelemetry } from '../types/radar.ts';
+import { CameraTelemetry } from '../types/camera.ts';
 import { LiveEvent, validateLiveEvent } from '../types/events.ts';
 
 export type ConnectionStatus = 'CONNECTING' | 'CONNECTED' | 'DISCONNECTED' | 'RECONNECTING' | 'ERROR';
@@ -30,6 +31,7 @@ export type GatewayStatsListener = (stats: GatewayStats) => void;
 export type EventLogListener = (event: SystemEventLog) => void;
 export type DetectionListener = (detection: HumanDetectionResult) => void;
 export type RadarListener = (radar: RadarTelemetry) => void;
+export type CameraListener = (camera: CameraTelemetry) => void;
 
 export interface ITelemetryService {
   connect(): void;
@@ -42,6 +44,7 @@ export interface ITelemetryService {
   onEventLog(listener: EventLogListener): () => void;
   onDetection(listener: DetectionListener): () => void;
   onRadar(listener: RadarListener): () => void;
+  onCamera(listener: CameraListener): () => void;
   fetchLatestTelemetry(nodeId?: string): Promise<SensorTelemetry | null>;
   fetchAllNodes(): Promise<NodeStatus[]>;
   fetchGatewayStats(): Promise<GatewayStats | null>;
@@ -67,6 +70,7 @@ export class LiveWebSocketTelemetryService implements ITelemetryService {
   private eventLogListeners = new Set<EventLogListener>();
   private detectionListeners = new Set<DetectionListener>();
   private radarListeners = new Set<RadarListener>();
+  private cameraListeners = new Set<CameraListener>();
 
   constructor() {
     // Hardware-independent service
@@ -234,6 +238,9 @@ export class LiveWebSocketTelemetryService implements ITelemetryService {
           if (snapshot.latestRadar) {
             this.radarListeners.forEach((listener) => listener(snapshot.latestRadar as RadarTelemetry));
           }
+          if (snapshot.latestCamera) {
+            this.cameraListeners.forEach((listener) => listener(snapshot.latestCamera as CameraTelemetry));
+          }
         }
         break;
       }
@@ -267,6 +274,14 @@ export class LiveWebSocketTelemetryService implements ITelemetryService {
         const radar = event.data;
         if (radar && typeof radar === 'object' && radar.deviceId) {
           this.radarListeners.forEach((listener) => listener(radar));
+        }
+        break;
+      }
+
+      case 'CAMERA_UPDATE': {
+        const camera = event.data || event.payload || (event as any).telemetry;
+        if (camera && typeof camera === 'object') {
+          this.cameraListeners.forEach((listener) => listener(camera));
         }
         break;
       }
@@ -334,6 +349,11 @@ export class LiveWebSocketTelemetryService implements ITelemetryService {
   public onRadar(listener: RadarListener): () => void {
     this.radarListeners.add(listener);
     return () => this.radarListeners.delete(listener);
+  }
+
+  public onCamera(listener: CameraListener): () => void {
+    this.cameraListeners.add(listener);
+    return () => this.cameraListeners.delete(listener);
   }
 
   public async fetchLatestTelemetry(nodeId?: string): Promise<SensorTelemetry | null> {
