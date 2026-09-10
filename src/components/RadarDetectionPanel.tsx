@@ -29,6 +29,7 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import { RadarState, RadarConnectionStatus } from '../types/radar.ts';
+import { TacticalRadarScope } from './TacticalRadarScope.tsx';
 
 interface RadarDetectionPanelProps {
   radarState: RadarState;
@@ -183,8 +184,23 @@ export const RadarDetectionPanel: React.FC<RadarDetectionPanelProps> = ({
         <span className="text-[9px] text-[#555555] hidden sm:block">NO INFERENCE FROM MOTION</span>
       </div>
 
-      {/* Primary Metrics Grid (Strict Contract Fields) */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
+      {/* ========================================================================= */}
+      {/* TACTICAL RADAR CONSOLE (Centerpiece Circular PPI Scope & Surveillance)    */}
+      {/* ========================================================================= */}
+      <TacticalRadarScope
+        telemetry={latestTelemetry}
+        connectionStatus={displayStatus}
+        isStale={isStale}
+        onRefresh={handleRefresh}
+      />
+
+      {/* Primary Hardware Telemetry Data Cards (Contract Fields) */}
+      <div className="pt-1">
+        <div className="text-[10px] text-[#8A8A8A] uppercase font-bold tracking-wider mb-2 flex items-center gap-1.5">
+          <Activity className="w-3.5 h-3.5 text-[#38BDF8]" />
+          <span>Real Hardware Telemetry Channels</span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
         {/* 1. Device ID */}
         <div className="p-2 rounded bg-[#060606] border border-[#1F1F1F]">
           <div className="flex items-center gap-1.5 text-[9px] text-[#8A8A8A] uppercase">
@@ -340,6 +356,7 @@ export const RadarDetectionPanel: React.FC<RadarDetectionPanelProps> = ({
           </div>
           <div className="text-[8px] text-[#666666] mt-0.5">PACKET RECEIVE TIME</div>
         </div>
+      </div>
       </div>
 
       {/* Hardware Telemetry Contract Documentation */}

@@ -187,6 +187,89 @@ export function validateRadarTelemetry(
     source = fallbackSource;
   }
 
+  // Azimuth / Angle validation (finite number in degrees, e.g. -180..+180 or 0..360)
+  let azimuthDeg: number | null = null;
+  const rawAzimuth = obj.azimuthDeg ?? obj.azimuth ?? obj.angleDeg ?? obj.angle ?? obj.bearing;
+  if (rawAzimuth !== undefined && rawAzimuth !== null) {
+    if (typeof rawAzimuth === 'number' && Number.isFinite(rawAzimuth)) {
+      azimuthDeg = rawAzimuth;
+    }
+  }
+
+  // Target ID validation
+  let targetId: string | null = null;
+  const rawTargetId = obj.targetId ?? obj.target_id ?? obj.trackId ?? obj.track_id;
+  if (typeof rawTargetId === 'string' && rawTargetId.trim().length > 0) {
+    targetId = rawTargetId.trim();
+  }
+
+  // Real classification validation (only accepted if explicitly provided by backend/model)
+  let classification: 'HUMAN' | 'ANIMAL' | 'UNKNOWN TARGET' | string | null = null;
+  const rawClass = obj.classification ?? obj.target_type ?? obj.class;
+  if (typeof rawClass === 'string' && rawClass.trim().length > 0) {
+    const normClass = rawClass.trim().toUpperCase();
+    if (normClass === 'HUMAN' || normClass === 'ANIMAL' || normClass === 'UNKNOWN TARGET' || normClass === 'UNKNOWN') {
+      classification = normClass === 'UNKNOWN' ? 'UNKNOWN TARGET' : (normClass as any);
+    } else {
+      classification = rawClass.trim();
+    }
+  }
+
+  // Classification confidence (finite number [0, 1] or [0, 100])
+  let classificationConfidence: number | null = null;
+  const rawClassConf = obj.classificationConfidence ?? obj.classification_confidence ?? obj.class_confidence;
+  if (rawClassConf !== undefined && rawClassConf !== null) {
+    if (typeof rawClassConf === 'number' && Number.isFinite(rawClassConf) && rawClassConf >= 0) {
+      classificationConfidence = rawClassConf <= 1 ? rawClassConf : Number((rawClassConf / 100).toFixed(4));
+    }
+  }
+
+  // Multi-target list validation
+  let targets: RadarTelemetry['targets'] = null;
+  const rawTargetList = obj.targets ?? obj.targetList ?? obj.target_list;
+  if (Array.isArray(rawTargetList)) {
+    targets = rawTargetList
+      .filter((t): t is Record<string, unknown> => Boolean(t && typeof t === 'object'))
+      .map((t, idx) => {
+        const tRange = typeof t.rangeM === 'number' && Number.isFinite(t.rangeM) && t.rangeM >= 0
+          ? t.rangeM
+          : typeof t.range === 'number' && Number.isFinite(t.range) && t.range >= 0
+          ? t.range
+          : 0;
+        const tAzimuth = typeof t.azimuthDeg === 'number' && Number.isFinite(t.azimuthDeg)
+          ? t.azimuthDeg
+          : typeof t.azimuth === 'number' && Number.isFinite(t.azimuth)
+          ? t.azimuth
+          : null;
+        const tVel = typeof t.radialVelocityMps === 'number' && Number.isFinite(t.radialVelocityMps)
+          ? t.radialVelocityMps
+          : typeof t.velocity === 'number' && Number.isFinite(t.velocity)
+          ? t.velocity
+          : null;
+        const tId = typeof t.targetId === 'string' && t.targetId.trim().length > 0
+          ? t.targetId.trim()
+          : typeof t.id === 'string' && t.id.trim().length > 0
+          ? t.id.trim()
+          : `TGT-${String(idx + 1).padStart(2, '0')}`;
+        const tClass = typeof t.classification === 'string' ? t.classification : null;
+        const tConf = typeof t.classificationConfidence === 'number' && Number.isFinite(t.classificationConfidence)
+          ? t.classificationConfidence
+          : null;
+
+        return {
+          targetId: tId,
+          rangeM: tRange,
+          azimuthDeg: tAzimuth,
+          radialVelocityMps: tVel,
+          snrDb: typeof t.snrDb === 'number' && Number.isFinite(t.snrDb) ? t.snrDb : null,
+          motionState: typeof t.motionState === 'string' ? t.motionState : null,
+          classification: tClass,
+          classificationConfidence: tConf,
+          lastSeen: typeof t.lastSeen === 'number' || typeof t.lastSeen === 'string' ? t.lastSeen : Date.now(),
+        };
+      });
+  }
+
   const vitalSignAvailable = breathingRateBpm !== null || heartRateBpm !== null;
 
   const validatedTelemetry: RadarTelemetry = {
@@ -210,6 +293,12 @@ export function validateRadarTelemetry(
     sequence,
     rawFeatures: null,
     vitalSignAvailable,
+    azimuthDeg,
+    angleDeg: azimuthDeg,
+    targetId,
+    classification,
+    classificationConfidence,
+    targets,
   };
 
   return {

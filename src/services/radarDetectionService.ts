@@ -139,14 +139,31 @@ class RadarDetectionService implements RadarDataProvider {
         telemetry.motionDetected === false ||
         telemetry.motionState === 'STATIONARY'
       );
+
+      // Strictly respect Section 9: humanDetected is ONLY true if a validated classifier confirmed 'HUMAN'.
+      // Motion or target presence alone does NOT imply human.
+      let humanDetected: boolean | null = null;
+      if (telemetry.classification) {
+        const norm = telemetry.classification.toUpperCase();
+        if (norm === 'HUMAN') humanDetected = true;
+        else if (norm === 'ANIMAL') humanDetected = false;
+        else humanDetected = null;
+      }
+
       this.state.latestDetection = {
         status: isTarget ? 'TARGET_DETECTED' : isClear ? 'NO_TARGET' : 'UNCERTAIN',
-        humanDetected: isTarget,
-        confidence: telemetry.dataQuality ?? telemetry.quality ?? null,
+        humanDetected,
+        confidence: telemetry.classificationConfidence ?? telemetry.dataQuality ?? telemetry.quality ?? null,
         targetCount: telemetry.targetCount,
         timestamp: telemetry.timestamp,
-        modelName: 'RadarHardwareProcessor',
-        message: isTarget ? 'Target motion detected by radar hardware' : isClear ? 'Radar hardware reports field clear' : 'Radar data uncertain',
+        modelName: telemetry.classification ? 'RadarClassifier' : 'RadarHardwareProcessor',
+        message: isTarget
+          ? (telemetry.classification
+              ? `Target classified as ${telemetry.classification} by radar hardware`
+              : 'Target motion detected by radar hardware (classification unvalidated)')
+          : isClear
+          ? 'Radar hardware reports field clear'
+          : 'Radar data uncertain',
       };
     }
 

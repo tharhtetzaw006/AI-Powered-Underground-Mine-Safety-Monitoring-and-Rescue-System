@@ -48,6 +48,18 @@ export interface RadarFeatureVector {
   rawBins?: number[] | null;
 }
 
+export interface RadarTarget {
+  targetId: string;
+  rangeM: number;
+  azimuthDeg?: number | null;
+  radialVelocityMps?: number | null;
+  snrDb?: number | null;
+  motionState?: string | null;
+  classification?: 'HUMAN' | 'ANIMAL' | 'UNKNOWN TARGET' | string | null;
+  classificationConfidence?: number | null;
+  lastSeen?: number | string | null;
+}
+
 export interface RadarTelemetry {
   deviceId: string;
   timestamp: string | number | null;
@@ -69,6 +81,13 @@ export interface RadarTelemetry {
   sequence: number | null;
   rawFeatures?: RadarFeatureVector | null;
   vitalSignAvailable?: boolean;
+  // Optional real target position & classification from multi-dimensional radar hardware (AoA / FMCW / tracking engine)
+  azimuthDeg?: number | null;
+  angleDeg?: number | null;
+  targetId?: string | null;
+  classification?: 'HUMAN' | 'ANIMAL' | 'UNKNOWN TARGET' | string | null;
+  classificationConfidence?: number | null;
+  targets?: RadarTarget[] | null;
 }
 
 export interface RadarDetectionResult {
