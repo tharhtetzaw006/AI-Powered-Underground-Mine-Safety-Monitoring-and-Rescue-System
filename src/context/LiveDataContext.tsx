@@ -197,6 +197,9 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const unsubRadar = radarDetectionService.onStateChange((state) => {
       setRadarState(state);
     });
+    const unsubRadarWs = liveTelemetryService.onRadar((radar) => {
+      radarDetectionService.ingestTelemetry(radar, 'WEBSOCKET');
+    });
     radarDetectionService.pollHttp('/api/radar/status', '/api/radar/latest');
 
     return () => {
@@ -209,6 +212,7 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       unsubFastApiState();
       unsubFastApiPred();
       unsubRadar();
+      unsubRadarWs();
       fastApiDetectionService.stop();
       liveTelemetryService.disconnect();
     };

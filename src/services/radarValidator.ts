@@ -26,7 +26,7 @@ export interface ValidationResult<T> {
 
 export function validateRadarTelemetry(
   raw: unknown,
-  fallbackSource: RadarDataSource = 'UNKNOWN'
+  fallbackSource: string = 'HARDWARE'
 ): ValidationResult<RadarTelemetry> {
   if (!raw || typeof raw !== 'object') {
     return { isValid: false, error: 'Payload must be a non-null JSON object', data: null };
@@ -44,22 +44,26 @@ export function validateRadarTelemetry(
   // Timestamp validation
   let timestamp: string | number | null = null;
   const rawTs = obj.timestamp ?? obj.time ?? obj.ts;
-  if (typeof rawTs === 'number') {
-    if (!Number.isFinite(rawTs) || rawTs <= 0) {
-      return { isValid: false, error: 'Numeric timestamp must be a positive finite epoch', data: null };
+  if (rawTs !== undefined && rawTs !== null) {
+    if (typeof rawTs === 'number') {
+      if (!Number.isFinite(rawTs) || rawTs <= 0) {
+        return { isValid: false, error: 'Numeric timestamp must be a positive finite epoch', data: null };
+      }
+      timestamp = rawTs;
+    } else if (typeof rawTs === 'string') {
+      const parsedDate = Date.parse(rawTs);
+      if (isNaN(parsedDate)) {
+        return { isValid: false, error: 'String timestamp is not a valid ISO date', data: null };
+      }
+      timestamp = rawTs;
+    } else {
+      return { isValid: false, error: 'Timestamp must be an ISO date string or numeric epoch', data: null };
     }
-    timestamp = rawTs;
-  } else if (typeof rawTs === 'string') {
-    const parsedDate = Date.parse(rawTs);
-    if (isNaN(parsedDate)) {
-      return { isValid: false, error: 'String timestamp is not a valid ISO date', data: null };
-    }
-    timestamp = rawTs;
   }
 
-  // Range validation: cannot be negative, must be finite number
-  let rangeMeters: number | null = null;
-  const rawRange = obj.rangeMeters ?? obj.range_meters ?? obj.range ?? obj.distance;
+  // Range validation: cannot be negative, must be finite number. Do NOT convert missing to zero.
+  let rangeM: number | null = null;
+  const rawRange = obj.rangeM ?? obj.rangeMeters ?? obj.range_meters ?? obj.range ?? obj.distance;
   if (rawRange !== undefined && rawRange !== null) {
     if (typeof rawRange !== 'number' || !Number.isFinite(rawRange)) {
       return { isValid: false, error: 'Range must be a finite number', data: null };
@@ -67,10 +71,10 @@ export function validateRadarTelemetry(
     if (rawRange < 0) {
       return { isValid: false, error: 'Range cannot be negative', data: null };
     }
-    rangeMeters = rawRange;
+    rangeM = rawRange;
   }
 
-  // Velocity validation: must be finite number
+  // Radial velocity validation: must be finite number.
   let radialVelocityMps: number | null = null;
   const rawVel = obj.radialVelocityMps ?? obj.radial_velocity ?? obj.velocity;
   if (rawVel !== undefined && rawVel !== null) {
@@ -80,55 +84,26 @@ export function validateRadarTelemetry(
     radialVelocityMps = rawVel;
   }
 
-  // Signal strength / SNR validation
-  let signalStrength: number | null = null;
-  const rawRssi = obj.signalStrength ?? obj.signal_strength ?? obj.rssi ?? obj.power;
-  if (rawRssi !== undefined && rawRssi !== null) {
-    if (typeof rawRssi !== 'number' || !Number.isFinite(rawRssi)) {
-      return { isValid: false, error: 'Signal strength must be a finite number', data: null };
-    }
-    signalStrength = rawRssi;
+  // Motion state & motionDetected
+  let motionDetected: boolean | null = null;
+  let motionState: RadarMotionState = 'NO_DATA';
+  const rawMotion = obj.motionDetected ?? obj.motion_detected ?? obj.motion;
+  if (typeof rawMotion === 'boolean') {
+    motionDetected = rawMotion;
+    motionState = rawMotion ? 'MOTION_DETECTED' : 'STATIONARY';
   }
 
-  let snr: number | null = null;
-  const rawSnr = obj.snr ?? obj.snrDb;
-  if (rawSnr !== undefined && rawSnr !== null) {
-    if (typeof rawSnr !== 'number' || !Number.isFinite(rawSnr)) {
-      return { isValid: false, error: 'SNR must be a finite number', data: null };
+  const rawMotionState = obj.motionState ?? obj.motion_state;
+  if (typeof rawMotionState === 'string') {
+    const s = rawMotionState.trim().toUpperCase();
+    if (s === 'MOTION_DETECTED' || s === 'STATIONARY' || s === 'UNCERTAIN' || s === 'NO_DATA') {
+      motionState = s as RadarMotionState;
+      if (s === 'MOTION_DETECTED') motionDetected = true;
+      if (s === 'STATIONARY') motionDetected = false;
     }
-    snr = rawSnr;
   }
 
-  // Vital Signs: Breathing rate & Heart rate (reject negative or non-finite values)
-  let breathingRateBpm: number | null = null;
-  const rawBreathing = obj.breathingRateBpm ?? obj.breathing_rate ?? obj.respiration_rate;
-  if (rawBreathing !== undefined && rawBreathing !== null) {
-    if (typeof rawBreathing !== 'number' || !Number.isFinite(rawBreathing) || rawBreathing < 0) {
-      return { isValid: false, error: 'Breathing rate must be a non-negative finite number', data: null };
-    }
-    breathingRateBpm = rawBreathing;
-  }
-
-  let heartRateBpm: number | null = null;
-  const rawHeart = obj.heartRateBpm ?? obj.heart_rate ?? obj.pulse_rate;
-  if (rawHeart !== undefined && rawHeart !== null) {
-    if (typeof rawHeart !== 'number' || !Number.isFinite(rawHeart) || rawHeart < 0) {
-      return { isValid: false, error: 'Heart rate must be a non-negative finite number', data: null };
-    }
-    heartRateBpm = rawHeart;
-  }
-
-  // Micro-motion
-  let microMotion: number | null = null;
-  const rawMicro = obj.microMotion ?? obj.micro_motion ?? obj.vibration;
-  if (rawMicro !== undefined && rawMicro !== null) {
-    if (typeof rawMicro !== 'number' || !Number.isFinite(rawMicro)) {
-      return { isValid: false, error: 'Micro-motion must be a finite number', data: null };
-    }
-    microMotion = rawMicro;
-  }
-
-  // Target count: must be non-negative integer
+  // Target count: must be non-negative integer. Do NOT convert missing to zero.
   let targetCount: number | null = null;
   const rawTargets = obj.targetCount ?? obj.target_count ?? obj.targets;
   if (rawTargets !== undefined && rawTargets !== null) {
@@ -138,65 +113,102 @@ export function validateRadarTelemetry(
     targetCount = rawTargets;
   }
 
-  // Motion state
-  let motionDetected: boolean | null = null;
-  let motionState: RadarMotionState = 'NO_DATA';
-  const rawMotion = obj.motionDetected ?? obj.motion_detected ?? obj.motion;
-  if (typeof rawMotion === 'boolean') {
-    motionDetected = rawMotion;
-    motionState = rawMotion ? 'MOTION_DETECTED' : 'STATIONARY';
-  } else if (typeof obj.motionState === 'string') {
-    const s = (obj.motionState as string).toUpperCase();
-    if (s === 'MOTION_DETECTED' || s === 'STATIONARY' || s === 'UNCERTAIN') {
-      motionState = s as RadarMotionState;
-      motionDetected = s === 'MOTION_DETECTED';
+  // Micro-motion: finite number, boolean, or string
+  let microMotion: number | boolean | string | null = null;
+  const rawMicro = obj.microMotion ?? obj.micro_motion ?? obj.vibration;
+  if (rawMicro !== undefined && rawMicro !== null) {
+    if (typeof rawMicro === 'number') {
+      if (!Number.isFinite(rawMicro)) {
+        return { isValid: false, error: 'Micro-motion numeric value must be finite', data: null };
+      }
+      microMotion = rawMicro;
+    } else if (typeof rawMicro === 'boolean' || typeof rawMicro === 'string') {
+      microMotion = rawMicro;
+    } else {
+      return { isValid: false, error: 'Micro-motion must be a number, boolean, or string', data: null };
     }
   }
 
-  // Quality validation [0, 1]
-  let quality: number | null = null;
-  const rawQuality = obj.quality ?? obj.confidence;
+  // Vital Signs: Breathing rate (reject negative or non-finite values)
+  let breathingRateBpm: number | null = null;
+  const rawBreathing = obj.breathingRateBpm ?? obj.breathing_rate ?? obj.respiration_rate;
+  if (rawBreathing !== undefined && rawBreathing !== null) {
+    if (typeof rawBreathing !== 'number' || !Number.isFinite(rawBreathing) || rawBreathing < 0) {
+      return { isValid: false, error: 'Breathing rate must be a non-negative finite number', data: null };
+    }
+    breathingRateBpm = rawBreathing;
+  }
+
+  // Vital Signs: Heart rate (reject negative or non-finite values)
+  let heartRateBpm: number | null = null;
+  const rawHeart = obj.heartRateBpm ?? obj.heart_rate ?? obj.pulse_rate;
+  if (rawHeart !== undefined && rawHeart !== null) {
+    if (typeof rawHeart !== 'number' || !Number.isFinite(rawHeart) || rawHeart < 0) {
+      return { isValid: false, error: 'Heart rate must be a non-negative finite number', data: null };
+    }
+    heartRateBpm = rawHeart;
+  }
+
+  // Data Quality / Confidence validation
+  let dataQuality: number | null = null;
+  const rawQuality = obj.dataQuality ?? obj.quality ?? obj.confidence;
   if (rawQuality !== undefined && rawQuality !== null) {
-    if (typeof rawQuality !== 'number' || !Number.isFinite(rawQuality) || rawQuality < 0 || rawQuality > 1) {
-      return { isValid: false, error: 'Signal quality/confidence must be between 0.0 and 1.0', data: null };
+    if (typeof rawQuality !== 'number' || !Number.isFinite(rawQuality) || rawQuality < 0) {
+      return { isValid: false, error: 'Data quality must be a non-negative finite number', data: null };
     }
-    quality = rawQuality;
+    dataQuality = rawQuality <= 1 ? rawQuality : Number((rawQuality / 100).toFixed(4));
   }
 
-  // Source determination
-  let source: RadarDataSource = fallbackSource;
-  if (typeof obj.source === 'string') {
-    const srcUpper = (obj.source as string).toUpperCase();
-    if (
-      srcUpper === 'SERIAL' ||
-      srcUpper === 'ESP32_TELEMETRY' ||
-      srcUpper === 'HTTP' ||
-      srcUpper === 'WEBSOCKET' ||
-      srcUpper === 'LORA_GATEWAY'
-    ) {
-      source = srcUpper as RadarDataSource;
+  // SNR (dB) validation
+  let snrDb: number | null = null;
+  const rawSnr = obj.snrDb ?? obj.snr;
+  if (rawSnr !== undefined && rawSnr !== null) {
+    if (typeof rawSnr !== 'number' || !Number.isFinite(rawSnr)) {
+      return { isValid: false, error: 'SNR must be a finite number', data: null };
     }
+    snrDb = rawSnr;
+  }
+
+  // Sequence number validation
+  let sequence: number | null = null;
+  const rawSeq = obj.sequence ?? obj.seq;
+  if (rawSeq !== undefined && rawSeq !== null) {
+    if (typeof rawSeq !== 'number' || !Number.isFinite(rawSeq) || rawSeq < 0 || Math.floor(rawSeq) !== rawSeq) {
+      return { isValid: false, error: 'Sequence must be a non-negative integer', data: null };
+    }
+    sequence = rawSeq;
+  }
+
+  // Source field
+  let source: string | null = null;
+  if (typeof obj.source === 'string' && obj.source.trim().length > 0) {
+    source = obj.source.trim();
+  } else {
+    source = fallbackSource;
   }
 
   const vitalSignAvailable = breathingRateBpm !== null || heartRateBpm !== null;
 
   const validatedTelemetry: RadarTelemetry = {
+    deviceId,
     timestamp: timestamp ?? new Date().toISOString(),
     receivedAt: Date.now(),
-    deviceId,
     source,
-    rangeMeters,
+    rangeM,
+    rangeMeters: rangeM,
     radialVelocityMps,
-    motionDetected,
     motionState,
-    signalStrength,
-    snr,
+    motionDetected,
+    targetCount,
+    microMotion,
     breathingRateBpm,
     heartRateBpm,
-    microMotion,
-    targetCount,
+    dataQuality,
+    quality: dataQuality,
+    snrDb,
+    snr: snrDb,
+    sequence,
     rawFeatures: null,
-    quality,
     vitalSignAvailable,
   };
 

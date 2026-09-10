@@ -730,7 +730,6 @@ export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
       <RadarDetectionPanel
         radarState={radarState}
         onRefreshRadar={refreshRadarStatus}
-        onIngestTelemetry={ingestRadarTelemetry}
       />
     </div>
   );

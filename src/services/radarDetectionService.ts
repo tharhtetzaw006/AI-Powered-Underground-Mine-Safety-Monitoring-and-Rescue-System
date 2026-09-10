@@ -120,25 +120,33 @@ class RadarDetectionService implements RadarDataProvider {
     this.state.deviceStatus = {
       ...this.state.deviceStatus,
       connected: true,
-      status: 'ONLINE',
+      status: 'CONNECTED',
       deviceId: telemetry.deviceId,
       lastSeen: now,
-      source: telemetry.source,
-      vitalSignSupported: telemetry.vitalSignAvailable,
-      message: `Active radar telemetry received via ${telemetry.source}`,
+      source: telemetry.source ?? 'HARDWARE',
+      vitalSignSupported: Boolean(telemetry.vitalSignAvailable),
+      message: `Active radar telemetry received via ${telemetry.source ?? 'HARDWARE'}`,
     };
 
-    // Synthesize verified detection outcome if motion or target is indicated
-    if (telemetry.motionDetected !== null || telemetry.targetCount !== null) {
-      const isTarget = Boolean(telemetry.motionDetected || (telemetry.targetCount !== null && telemetry.targetCount > 0));
+    // Synthesize verified detection outcome only if motion or target is truthfully indicated
+    if (telemetry.motionDetected !== null || telemetry.targetCount !== null || (telemetry.motionState && telemetry.motionState !== 'NO_DATA')) {
+      const isTarget = Boolean(
+        telemetry.motionDetected === true ||
+        telemetry.motionState === 'MOTION_DETECTED' ||
+        (telemetry.targetCount !== null && telemetry.targetCount > 0)
+      );
+      const isClear = Boolean(
+        telemetry.motionDetected === false ||
+        telemetry.motionState === 'STATIONARY'
+      );
       this.state.latestDetection = {
-        status: isTarget ? 'TARGET_DETECTED' : 'NO_TARGET',
+        status: isTarget ? 'TARGET_DETECTED' : isClear ? 'NO_TARGET' : 'UNCERTAIN',
         humanDetected: isTarget,
-        confidence: telemetry.quality,
+        confidence: telemetry.dataQuality ?? telemetry.quality ?? null,
         targetCount: telemetry.targetCount,
         timestamp: telemetry.timestamp,
-        modelName: 'RadarFeatureProcessor',
-        message: isTarget ? 'Target motion detected by radar' : 'Radar field clear',
+        modelName: 'RadarHardwareProcessor',
+        message: isTarget ? 'Target motion detected by radar hardware' : isClear ? 'Radar hardware reports field clear' : 'Radar data uncertain',
       };
     }
 
@@ -247,16 +255,20 @@ class RadarDetectionService implements RadarDataProvider {
         return false;
       }
       const data = await res.json();
-      if (data && typeof data.connected === 'boolean') {
+      if (data && typeof data.status === 'string') {
+        const isConnected = data.status === 'CONNECTED' || data.connected === true;
         this.setDeviceStatus({
-          connected: data.connected,
-          status: data.status ?? (data.connected ? 'ONLINE' : 'NOT_CONNECTED'),
+          connected: isConnected,
+          status: data.status,
           deviceId: data.deviceId ?? null,
+          lastSeen: data.lastSeen ?? null,
+          source: data.source ?? 'HARDWARE',
+          vitalSignSupported: Boolean(data.vitalSignSupported),
           message: data.message ?? null,
         });
       }
 
-      if (latestUrl && data.connected) {
+      if (latestUrl) {
         const latestRes = await fetch(latestUrl, { headers: { Accept: 'application/json' } });
         if (latestRes.ok) {
           const telemetryData = await latestRes.json();
@@ -292,7 +304,7 @@ class RadarDetectionService implements RadarDataProvider {
       newStatus = 'STALE';
       newStale = true;
     } else {
-      newStatus = 'ONLINE';
+      newStatus = 'CONNECTED';
       newStale = false;
     }
 

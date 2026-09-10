@@ -29,6 +29,7 @@ import {
 } from './src/types/telemetry.ts';
 import { realSensorFeatureExtractor } from './src/services/realSensorFeatureExtractor.ts';
 import { productionDetectionEngine } from './src/services/detectionEngine.ts';
+import { RadarTelemetry } from './src/types/radar.ts';
 import { validateRadarTelemetry } from './src/services/radarValidator.ts';
 
 const PORT = 3000;
@@ -519,6 +520,16 @@ async function startServer() {
     return { inferenceTriggered: false };
   }
 
+  // =========================================================================
+  // AUTHORITATIVE HARDWARE RADAR INGESTION & LIFECYCLE
+  // Backend is authoritative source of truth; strictly real hardware data only.
+  // =========================================================================
+  const RADAR_STALE_THRESHOLD_MS = 15000;
+  const FUSION_SYNC_WINDOW_MS = 15000;
+  let latestValidatedRadarPacket: RadarTelemetry | null = null;
+  let lastRadarPacketReceivedTime: number | null = null;
+  let radarPacketsCount = 0;
+
   // Handle WebSocket connections
   wss.on('connection', (ws) => {
     clients.add(ws);
@@ -545,6 +556,7 @@ async function startServer() {
         detectionStatus: productionDetectionEngine.getStatus(),
         gatewayStats: getGatewayStats(),
         events: systemEventsBuffer,
+        latestRadar: latestValidatedRadarPacket,
       },
     };
 
@@ -556,6 +568,13 @@ async function startServer() {
           data: latestCsiDetectionResult,
           prediction: latestCsiDetectionResult,
           payload: latestCsiDetectionResult,
+        }));
+      }
+      if (latestValidatedRadarPacket) {
+        ws.send(JSON.stringify({
+          type: 'RADAR_UPDATE',
+          data: latestValidatedRadarPacket,
+          telemetry: latestValidatedRadarPacket,
         }));
       }
     } catch {
@@ -1343,26 +1362,59 @@ async function startServer() {
 
   // GET /api/radar/status: Real radar hardware connection status
   app.get('/api/radar/status', (_req, res) => {
+    if (!latestValidatedRadarPacket || !lastRadarPacketReceivedTime) {
+      res.json({
+        status: 'NOT_CONNECTED',
+        connected: false,
+        deviceId: null,
+        lastSeen: null,
+        lastPacketTimestamp: null,
+        packetsReceived: 0,
+        sampleRateHz: null,
+        firmwareVersion: null,
+        source: 'UNKNOWN',
+        vitalSignSupported: false,
+        message: 'No radar hardware connected. Telemetry input awaiting connection.',
+      });
+      return;
+    }
+
+    const elapsed = Date.now() - lastRadarPacketReceivedTime;
+    const isStale = elapsed > RADAR_STALE_THRESHOLD_MS;
+    const status = isStale ? 'STALE' : 'CONNECTED';
+
     res.json({
-      connected: false,
-      status: 'NOT_CONNECTED',
-      deviceId: null,
-      lastSeen: null,
+      status,
+      connected: !isStale,
+      deviceId: latestValidatedRadarPacket.deviceId,
+      lastSeen: lastRadarPacketReceivedTime,
+      lastPacketTimestamp: latestValidatedRadarPacket.timestamp,
+      packetsReceived: radarPacketsCount,
       sampleRateHz: null,
       firmwareVersion: null,
-      source: 'UNKNOWN',
-      vitalSignSupported: false,
-      message: 'No radar hardware connected. Telemetry input awaiting connection.',
+      source: latestValidatedRadarPacket.source ?? 'HARDWARE',
+      vitalSignSupported: Boolean(latestValidatedRadarPacket.vitalSignAvailable),
+      message: isStale
+        ? `Radar hardware telemetry stale (> ${RADAR_STALE_THRESHOLD_MS / 1000}s without packets)`
+        : `Active radar telemetry received from device ${latestValidatedRadarPacket.deviceId}`,
     });
   });
 
-  // GET /api/radar/latest: Latest verified radar telemetry and detection
+  // GET /api/radar/latest: Latest verified radar telemetry and detection (NEVER generates fake data)
   app.get('/api/radar/latest', (_req, res) => {
+    if (!latestValidatedRadarPacket) {
+      res.json({
+        status: 'NO_DATA',
+        telemetry: null,
+        message: 'No radar telemetry packets have been received yet.',
+      });
+      return;
+    }
+
     res.json({
-      telemetry: null,
-      detection: null,
-      status: 'NO_DATA',
-      message: 'No active radar telemetry packets recorded.',
+      status: 'DATA_AVAILABLE',
+      telemetry: latestValidatedRadarPacket,
+      message: `Latest validated radar telemetry from ${latestValidatedRadarPacket.deviceId}`,
     });
   });
 
@@ -1372,29 +1424,151 @@ async function startServer() {
     if (!validation.isValid || !validation.data) {
       res.status(400).json({
         success: false,
+        accepted: false,
         error: validation.error ?? 'Invalid radar telemetry packet',
       });
       return;
     }
+
+    const telemetry = validation.data;
+    latestValidatedRadarPacket = telemetry;
+    lastRadarPacketReceivedTime = Date.now();
+    radarPacketsCount++;
+
+    // Broadcast ONLY when a NEW VALID RADAR PACKET arrives
+    broadcast({
+      type: 'RADAR_UPDATE',
+      data: telemetry,
+      telemetry,
+    } as any);
+
     res.json({
       success: true,
       accepted: true,
-      telemetry: validation.data,
+      data: telemetry,
+      telemetry,
     });
   });
 
-  // GET /api/detection/fusion/latest: Latest combined sensor fusion outcome
+  // GET /api/detection/fusion/latest: Authoritative sensor fusion outcome
   app.get('/api/detection/fusion/latest', (_req, res) => {
+    // 1. Evaluate CSI Evidence
+    const csiHasPrediction = latestCsiDetectionResult !== null && latestCsiDetectionResult.status !== 'NO_DATA';
+    const csiHasHuman = csiHasPrediction && latestCsiDetectionResult?.status === 'PERSON DETECTED';
+    const csiHasClear = csiHasPrediction && latestCsiDetectionResult?.status === 'AREA EMPTY';
+    const csiModalityStatus = csiHasHuman
+      ? 'PERSON DETECTED'
+      : csiHasClear
+      ? 'CLEAR'
+      : csiHasPrediction
+      ? 'NO DATA'
+      : 'OFFLINE';
+
+    // 2. Evaluate Radar Evidence
+    const radarElapsed = lastRadarPacketReceivedTime ? Date.now() - lastRadarPacketReceivedTime : Infinity;
+    const radarConnected = latestValidatedRadarPacket !== null && radarElapsed <= RADAR_STALE_THRESHOLD_MS;
+    const radarHasHuman =
+      radarConnected &&
+      (latestValidatedRadarPacket?.motionState === 'MOTION_DETECTED' ||
+        latestValidatedRadarPacket?.motionDetected === true ||
+        (latestValidatedRadarPacket?.targetCount !== null && (latestValidatedRadarPacket?.targetCount ?? 0) > 0));
+    const radarHasClear =
+      radarConnected &&
+      (latestValidatedRadarPacket?.motionState === 'STATIONARY' ||
+        latestValidatedRadarPacket?.motionDetected === false);
+    const radarModalityStatus = radarHasHuman
+      ? 'PERSON DETECTED'
+      : radarHasClear
+      ? 'CLEAR'
+      : radarConnected
+      ? 'NO DATA'
+      : 'OFFLINE';
+
+    // 3. Temporal Correlation (Synchronization Window)
+    const csiTs = latestCsiDetectionResult?.timestamp ? new Date(latestCsiDetectionResult.timestamp).getTime() : 0;
+    const radarTs = latestValidatedRadarPacket?.timestamp
+      ? new Date(latestValidatedRadarPacket.timestamp).getTime()
+      : lastRadarPacketReceivedTime ?? 0;
+    const inSync = csiTs > 0 && radarTs > 0 && Math.abs(csiTs - radarTs) <= FUSION_SYNC_WINDOW_MS;
+
+    let finalStatus: 'NO DATA' | 'CSI DETECTED' | 'RADAR DETECTED' | 'MULTI-SENSOR DETECTED' | 'CONFLICT' | 'ERROR' = 'NO DATA';
+    let evidenceSource: 'NO_DATA' | 'CSI_ONLY' | 'RADAR_ONLY' | 'MULTI_SENSOR' | 'CONFLICT' | 'ERROR' = 'NO_DATA';
+    let sourceDescription: 'CSI' | 'RADAR' | 'CSI + RADAR' | 'NONE' = 'NONE';
+    let fusionState: 'IDLE' | 'SINGLE_SOURCE_CSI' | 'SINGLE_SOURCE_RADAR' | 'FUSED_CONCORDANT' | 'FUSED_CONFLICT' | 'INSUFFICIENT_EVIDENCE' = 'IDLE';
+    let notes = 'Awaiting verified sensor streams.';
+
+    if (csiHasHuman && radarHasHuman) {
+      if (inSync) {
+        finalStatus = 'MULTI-SENSOR DETECTED';
+        evidenceSource = 'MULTI_SENSOR';
+        sourceDescription = 'CSI + RADAR';
+        fusionState = 'FUSED_CONCORDANT';
+        notes = 'Both CSI and Radar independently confirm human/life detection within synchronization window.';
+      } else {
+        // Outside sync window: prioritize whichever measurement is most recent
+        if (csiTs >= radarTs) {
+          finalStatus = 'CSI DETECTED';
+          evidenceSource = 'CSI_ONLY';
+          sourceDescription = 'CSI';
+          fusionState = 'SINGLE_SOURCE_CSI';
+          notes = 'CSI detects person. Radar detection is outside synchronization window.';
+        } else {
+          finalStatus = 'RADAR DETECTED';
+          evidenceSource = 'RADAR_ONLY';
+          sourceDescription = 'RADAR';
+          fusionState = 'SINGLE_SOURCE_RADAR';
+          notes = 'Radar detects person. CSI detection is outside synchronization window.';
+        }
+      }
+    } else if (csiHasHuman && radarHasClear && inSync) {
+      finalStatus = 'CONFLICT';
+      evidenceSource = 'CONFLICT';
+      sourceDescription = 'CSI + RADAR';
+      fusionState = 'FUSED_CONFLICT';
+      notes = 'Discrepancy: CSI reports PERSON DETECTED, but Radar reports CLEAR within sync window.';
+    } else if (radarHasHuman && csiHasClear && inSync) {
+      finalStatus = 'CONFLICT';
+      evidenceSource = 'CONFLICT';
+      sourceDescription = 'CSI + RADAR';
+      fusionState = 'FUSED_CONFLICT';
+      notes = 'Discrepancy: Radar detects target, but CSI reports AREA EMPTY within sync window.';
+    } else if (csiHasHuman) {
+      finalStatus = 'CSI DETECTED';
+      evidenceSource = 'CSI_ONLY';
+      sourceDescription = 'CSI';
+      fusionState = 'SINGLE_SOURCE_CSI';
+      notes = 'CSI verified detection. Radar has no positive detection (offline/clear/no data).';
+    } else if (radarHasHuman) {
+      finalStatus = 'RADAR DETECTED';
+      evidenceSource = 'RADAR_ONLY';
+      sourceDescription = 'RADAR';
+      fusionState = 'SINGLE_SOURCE_RADAR';
+      notes = 'Radar verified target detection. CSI has no positive detection (offline/empty/no data).';
+    } else {
+      finalStatus = 'NO DATA';
+      evidenceSource = 'NO_DATA';
+      sourceDescription = 'NONE';
+      fusionState = 'IDLE';
+      notes = 'No active sensing streams reporting positive human/target detection.';
+    }
+
+    const lastFusionUpdate = Math.max(csiTs, radarTs) || null;
+
     res.json({
-      finalStatus: 'NO DATA',
-      evidenceSource: 'NO_DATA',
-      csiStatus: 'NO DATA',
-      radarStatus: 'NO DATA',
-      csiConfidence: null,
-      radarConfidence: null,
-      fusionState: 'IDLE',
-      lastFusionUpdate: null,
-      notes: 'Awaiting verified sensor streams.',
+      finalStatus,
+      evidenceSource,
+      sourceDescription,
+      csiStatus: latestCsiDetectionResult?.status ?? 'NO DATA',
+      radarStatus: latestValidatedRadarPacket?.motionState ?? (radarConnected ? 'CLEAR' : 'NOT CONNECTED'),
+      csiModalityStatus,
+      radarModalityStatus,
+      csiConfidence: latestCsiDetectionResult?.confidence ?? null,
+      radarConfidence: latestValidatedRadarPacket?.dataQuality ?? null,
+      fusionState,
+      lastFusionUpdate,
+      syncWindowMs: FUSION_SYNC_WINDOW_MS,
+      inSync,
+      notes,
     });
   });
 

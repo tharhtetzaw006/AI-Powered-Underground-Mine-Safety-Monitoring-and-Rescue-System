@@ -18,6 +18,7 @@ import {
   DetectionEngineStatus,
   DetectionEventRecord,
 } from '../types/telemetry.ts';
+import { RadarTelemetry } from '../types/radar.ts';
 
 export type ConnectionStatus = 'CONNECTING' | 'CONNECTED' | 'DISCONNECTED' | 'ERROR';
 
@@ -27,6 +28,7 @@ export type ConnectionListener = (status: ConnectionStatus, error?: string | nul
 export type GatewayStatsListener = (stats: GatewayStats) => void;
 export type EventLogListener = (event: SystemEventLog) => void;
 export type DetectionListener = (detection: HumanDetectionResult) => void;
+export type RadarListener = (radar: RadarTelemetry) => void;
 
 export interface ITelemetryService {
   connect(): void;
@@ -38,6 +40,7 @@ export interface ITelemetryService {
   onGatewayStats(listener: GatewayStatsListener): () => void;
   onEventLog(listener: EventLogListener): () => void;
   onDetection(listener: DetectionListener): () => void;
+  onRadar(listener: RadarListener): () => void;
   fetchLatestTelemetry(nodeId?: string): Promise<SensorTelemetry | null>;
   fetchAllNodes(): Promise<NodeStatus[]>;
   fetchGatewayStats(): Promise<GatewayStats | null>;
@@ -62,6 +65,7 @@ export class LiveWebSocketTelemetryService implements ITelemetryService {
   private gatewayStatsListeners = new Set<GatewayStatsListener>();
   private eventLogListeners = new Set<EventLogListener>();
   private detectionListeners = new Set<DetectionListener>();
+  private radarListeners = new Set<RadarListener>();
 
   constructor() {
     // Hardware-independent service
@@ -200,6 +204,9 @@ export class LiveWebSocketTelemetryService implements ITelemetryService {
               this.eventLogListeners.forEach((listener) => listener(ev));
             });
           }
+          if (msg.payload.latestRadar) {
+            this.radarListeners.forEach((listener) => listener(msg.payload.latestRadar as RadarTelemetry));
+          }
         }
         break;
 
@@ -220,6 +227,14 @@ export class LiveWebSocketTelemetryService implements ITelemetryService {
         const detObj = ((msg as any).detection || msg.payload) as HumanDetectionResult | undefined;
         if (detObj && typeof detObj === 'object' && detObj.nodeId) {
           this.detectionListeners.forEach((listener) => listener(detObj));
+        }
+        break;
+      }
+
+      case 'RADAR_UPDATE' as any: {
+        const radarData = ((msg as any).data || (msg as any).telemetry || msg.payload) as RadarTelemetry | undefined;
+        if (radarData && typeof radarData === 'object' && radarData.deviceId) {
+          this.radarListeners.forEach((listener) => listener(radarData));
         }
         break;
       }
@@ -282,6 +297,11 @@ export class LiveWebSocketTelemetryService implements ITelemetryService {
   public onDetection(listener: DetectionListener): () => void {
     this.detectionListeners.add(listener);
     return () => this.detectionListeners.delete(listener);
+  }
+
+  public onRadar(listener: RadarListener): () => void {
+    this.radarListeners.add(listener);
+    return () => this.radarListeners.delete(listener);
   }
 
   public async fetchLatestTelemetry(nodeId?: string): Promise<SensorTelemetry | null> {

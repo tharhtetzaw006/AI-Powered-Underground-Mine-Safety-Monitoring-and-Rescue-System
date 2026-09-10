@@ -20,10 +20,10 @@ import {
   CheckCircle2,
   Clock,
   HelpCircle,
-  ShieldCheck,
   Zap,
+  Timer,
 } from 'lucide-react';
-import { SensorFusionResult, FusionFinalStatus } from '../types/radar.ts';
+import { SensorFusionResult, FusionFinalStatus, FusionModalityStatus } from '../types/radar.ts';
 
 interface SensorFusionPanelProps {
   fusionResult: SensorFusionResult;
@@ -38,13 +38,15 @@ export const SensorFusionPanel: React.FC<SensorFusionPanelProps> = ({
 }) => {
   const {
     finalStatus,
-    evidenceSource,
-    csiStatus,
-    radarStatus,
+    sourceDescription,
+    csiModalityStatus,
+    radarModalityStatus,
     csiConfidence,
     radarConfidence,
     fusionState,
     lastFusionUpdate,
+    syncWindowMs = 15000,
+    inSync,
     notes,
   } = fusionResult;
 
@@ -88,21 +90,50 @@ export const SensorFusionPanel: React.FC<SensorFusionPanelProps> = ({
     }
   };
 
-  const getEvidenceSourceBadge = (src: string) => {
-    switch (src) {
-      case 'MULTI_SENSOR':
-        return 'text-[#C084FC] border-[#A855F7]/40 bg-[#1E0B3B]';
-      case 'CSI_ONLY':
-        return 'text-[#22C55E] border-[#22C55E]/40 bg-[#072412]';
-      case 'RADAR_ONLY':
-        return 'text-[#38BDF8] border-[#38BDF8]/40 bg-[#0C1E2B]';
-      case 'CONFLICT':
-        return 'text-[#F87171] border-[#EF4444]/40 bg-[#2A0808]';
-      case 'ERROR':
-        return 'text-[#EF4444] border-[#EF4444]/40 bg-[#2A0808]';
-      case 'NO_DATA':
+  const getModalityBadge = (mStatus: FusionModalityStatus | undefined) => {
+    switch (mStatus) {
+      case 'PERSON DETECTED':
+        return 'bg-[#072412] text-[#22C55E] border-[#22C55E]/40 font-bold';
+      case 'CLEAR':
+        return 'bg-[#0C1E2B] text-[#38BDF8] border-[#38BDF8]/40 font-bold';
+      case 'NO DATA':
+        return 'bg-[#181818] text-[#8A8A8A] border-[#333333] font-bold';
+      case 'OFFLINE':
       default:
-        return 'text-[#8A8A8A] border-[#333333] bg-[#141414]';
+        return 'bg-[#2A0808] text-[#EF4444] border-[#EF4444]/40 font-bold';
+    }
+  };
+
+  const getSourceBadge = (src: 'NONE' | 'CSI' | 'RADAR' | 'CSI + RADAR' | undefined) => {
+    switch (src) {
+      case 'CSI + RADAR':
+        return 'text-[#C084FC] border-[#A855F7]/50 bg-[#1E0B3B] font-bold';
+      case 'CSI':
+        return 'text-[#22C55E] border-[#22C55E]/50 bg-[#072412] font-bold';
+      case 'RADAR':
+        return 'text-[#38BDF8] border-[#38BDF8]/50 bg-[#0C1E2B] font-bold';
+      case 'NONE':
+      default:
+        return 'text-[#8A8A8A] border-[#333333] bg-[#141414] font-bold';
+    }
+  };
+
+  const syncIndicator =
+    inSync === true
+      ? 'IN SYNC'
+      : (csiModalityStatus === 'PERSON DETECTED' || csiModalityStatus === 'CLEAR') &&
+        (radarModalityStatus === 'PERSON DETECTED' || radarModalityStatus === 'CLEAR')
+      ? 'OUT OF SYNC'
+      : 'AWAITING DATA';
+
+  const getSyncBadge = (sync: string) => {
+    switch (sync) {
+      case 'IN SYNC':
+        return 'text-[#22C55E] border-[#22C55E]/40 bg-[#072412] font-bold';
+      case 'OUT OF SYNC':
+        return 'text-[#EAB308] border-[#EAB308]/40 bg-[#2A2000] font-bold';
+      default:
+        return 'text-[#8A8A8A] border-[#333333] bg-[#141414] font-bold';
     }
   };
 
@@ -120,18 +151,18 @@ export const SensorFusionPanel: React.FC<SensorFusionPanelProps> = ({
                 Sensor Fusion Engine
               </h4>
               <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#141414] text-[#A855F7] border border-[#A855F7]/40 font-semibold">
-                DUAL-MODALITY ARBITRATION
+                RF CSI + RADAR CROSS-VERIFICATION
               </span>
             </div>
             <p className="text-[10px] text-[#8A8A8A] mt-0.5">
-              INDEPENDENT RF CSI + RADAR CROSS-VERIFICATION LAYER
+              TEMPORAL SYNCHRONIZATION &bull; AUTHORITATIVE TRUTH ARBITRATION
             </p>
           </div>
         </div>
 
-        {/* Big Final Status Badge */}
+        {/* Combined Status Badge */}
         <div className="flex items-center gap-2">
-          <span className="text-[10px] text-[#8A8A8A] uppercase">FINAL OUTCOME:</span>
+          <span className="text-[10px] text-[#8A8A8A] uppercase">COMBINED STATUS:</span>
           <span
             className={`px-2.5 py-1 rounded text-xs font-extrabold uppercase border ${getStatusBadge(
               finalStatus
@@ -152,10 +183,10 @@ export const SensorFusionPanel: React.FC<SensorFusionPanelProps> = ({
               <span>CSI SENSING</span>
             </div>
             <span
-              className={`px-1.5 py-0.2 rounded text-[9px] font-bold border ${
+              className={`px-1.5 py-0.5 rounded text-[9px] border ${
                 csiOnline
-                  ? 'bg-[#072412] text-[#22C55E] border-[#22C55E]/40'
-                  : 'bg-[#2A0808] text-[#EF4444] border-[#EF4444]/40'
+                  ? 'bg-[#072412] text-[#22C55E] border-[#22C55E]/40 font-bold'
+                  : 'bg-[#2A0808] text-[#EF4444] border-[#EF4444]/40 font-bold'
               }`}
             >
               {csiOnline ? 'ONLINE' : 'OFFLINE'}
@@ -163,18 +194,10 @@ export const SensorFusionPanel: React.FC<SensorFusionPanelProps> = ({
           </div>
 
           <div className="space-y-1 text-[10px] pt-1 border-t border-[#181818]">
-            <div className="flex justify-between">
-              <span className="text-[#8A8A8A]">Classification:</span>
-              <span
-                className={`font-bold ${
-                  csiStatus === 'PERSON DETECTED'
-                    ? 'text-[#22C55E]'
-                    : csiStatus === 'AREA EMPTY'
-                    ? 'text-[#38BDF8]'
-                    : 'text-[#8A8A8A]'
-                }`}
-              >
-                {csiStatus}
+            <div className="flex justify-between items-center">
+              <span className="text-[#8A8A8A]">Modality Status:</span>
+              <span className={`px-1.5 py-0.2 rounded text-[9px] border ${getModalityBadge(csiModalityStatus)}`}>
+                {csiModalityStatus ?? 'OFFLINE'}
               </span>
             </div>
             <div className="flex justify-between">
@@ -182,7 +205,7 @@ export const SensorFusionPanel: React.FC<SensorFusionPanelProps> = ({
               <span className="text-[#FFFFFF] font-bold">{formatConfidence(csiConfidence)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-[#8A8A8A]">Model Type:</span>
+              <span className="text-[#8A8A8A]">Pipeline:</span>
               <span className="text-[#8A8A8A]">192-Feat Random Forest</span>
             </div>
           </div>
@@ -196,29 +219,21 @@ export const SensorFusionPanel: React.FC<SensorFusionPanelProps> = ({
               <span>RADAR SENSING</span>
             </div>
             <span
-              className={`px-1.5 py-0.2 rounded text-[9px] font-bold border ${
+              className={`px-1.5 py-0.5 rounded text-[9px] border ${
                 radarConnected
-                  ? 'bg-[#072412] text-[#22C55E] border-[#22C55E]/40'
-                  : 'bg-[#181818] text-[#8A8A8A] border-[#333333]'
+                  ? 'bg-[#072412] text-[#22C55E] border-[#22C55E]/40 font-bold'
+                  : 'bg-[#181818] text-[#8A8A8A] border-[#333333] font-bold'
               }`}
             >
-              {radarConnected ? 'ONLINE' : 'NOT CONNECTED'}
+              {radarConnected ? 'CONNECTED' : 'NOT CONNECTED'}
             </span>
           </div>
 
           <div className="space-y-1 text-[10px] pt-1 border-t border-[#181818]">
-            <div className="flex justify-between">
-              <span className="text-[#8A8A8A]">Classification:</span>
-              <span
-                className={`font-bold ${
-                  radarStatus === 'TARGET_DETECTED'
-                    ? 'text-[#38BDF8]'
-                    : radarStatus === 'NO_TARGET'
-                    ? 'text-[#22C55E]'
-                    : 'text-[#8A8A8A]'
-                }`}
-              >
-                {radarStatus}
+            <div className="flex justify-between items-center">
+              <span className="text-[#8A8A8A]">Modality Status:</span>
+              <span className={`px-1.5 py-0.2 rounded text-[9px] border ${getModalityBadge(radarModalityStatus)}`}>
+                {radarModalityStatus ?? 'OFFLINE'}
               </span>
             </div>
             <div className="flex justify-between">
@@ -226,8 +241,8 @@ export const SensorFusionPanel: React.FC<SensorFusionPanelProps> = ({
               <span className="text-[#FFFFFF] font-bold">{formatConfidence(radarConfidence)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-[#8A8A8A]">Processing:</span>
-              <span className="text-[#8A8A8A]">Radar Feature Extractor</span>
+              <span className="text-[#8A8A8A]">Pipeline:</span>
+              <span className="text-[#8A8A8A]">Radar Telemetry Ingest</span>
             </div>
           </div>
         </div>
@@ -237,63 +252,51 @@ export const SensorFusionPanel: React.FC<SensorFusionPanelProps> = ({
           <div className="flex items-center justify-between text-[10px]">
             <div className="flex items-center gap-1.5 text-[#B3B3B3] font-bold">
               <Zap className="w-3.5 h-3.5 text-[#A855F7]" />
-              <span>FUSED ARBITRATION</span>
+              <span>ARBITRATION</span>
             </div>
-            <span
-              className={`px-1.5 py-0.2 rounded text-[9px] font-bold border ${getEvidenceSourceBadge(
-                evidenceSource
-              )}`}
-            >
-              {evidenceSource}
+            <span className={`px-1.5 py-0.5 rounded text-[9px] border ${getSourceBadge(sourceDescription)}`}>
+              SOURCE: {sourceDescription ?? 'NONE'}
             </span>
           </div>
 
           <div className="space-y-1 text-[10px] pt-1 border-t border-[#181818]">
+            <div className="flex justify-between items-center">
+              <span className="text-[#8A8A8A]">Temporal Sync:</span>
+              <span className={`px-1.5 py-0.2 rounded text-[9px] border ${getSyncBadge(syncIndicator)}`}>
+                {syncIndicator}
+              </span>
+            </div>
             <div className="flex justify-between">
-              <span className="text-[#8A8A8A]">Fusion State:</span>
-              <span className="text-[#FFFFFF] font-bold">{fusionState}</span>
+              <span className="text-[#8A8A8A]">Sync Window:</span>
+              <span className="text-[#FFFFFF] font-bold">{(syncWindowMs / 1000).toFixed(0)}s</span>
             </div>
             <div className="flex justify-between">
               <span className="text-[#8A8A8A]">Last Update:</span>
               <span className="text-[#FFFFFF] font-bold">{formatTime(lastFusionUpdate)}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-[#8A8A8A]">Discrepancy:</span>
-              <span
-                className={`font-bold ${
-                  fusionState === 'FUSED_CONFLICT'
-                    ? 'text-[#EF4444]'
-                    : fusionState === 'FUSED_CONCORDANT'
-                    ? 'text-[#22C55E]'
-                    : 'text-[#8A8A8A]'
-                }`}
-              >
-                {fusionState === 'FUSED_CONFLICT'
-                  ? 'YES (CONFLICT)'
-                  : fusionState === 'FUSED_CONCORDANT'
-                  ? 'NONE (CONCORDANT)'
-                  : 'N/A'}
-              </span>
-            </div>
           </div>
         </div>
       </div>
 
-      {/* Fusion Explanatory Note */}
-      <div className="p-2 rounded bg-[#080808] border border-[#1C1C1C] flex items-center justify-between text-[10px]">
-        <div className="flex items-center gap-2">
+      {/* Fusion Explanatory Note (Clear justification for why state was chosen) */}
+      <div className="p-2.5 rounded bg-[#080808] border border-[#1C1C1C] flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[10px]">
+        <div className="flex items-start sm:items-center gap-2">
           {fusionState === 'FUSED_CONFLICT' ? (
-            <AlertTriangle className="w-3.5 h-3.5 text-[#EF4444] shrink-0" />
+            <AlertTriangle className="w-4 h-4 text-[#EF4444] shrink-0 mt-0.5 sm:mt-0" />
           ) : fusionState === 'FUSED_CONCORDANT' ? (
-            <CheckCircle2 className="w-3.5 h-3.5 text-[#22C55E] shrink-0" />
+            <CheckCircle2 className="w-4 h-4 text-[#22C55E] shrink-0 mt-0.5 sm:mt-0" />
           ) : (
-            <HelpCircle className="w-3.5 h-3.5 text-[#8A8A8A] shrink-0" />
+            <HelpCircle className="w-4 h-4 text-[#8A8A8A] shrink-0 mt-0.5 sm:mt-0" />
           )}
-          <span className="text-[#B3B3B3]">{notes}</span>
+          <div>
+            <span className="text-[#8A8A8A] uppercase font-bold mr-1.5">Arbitration Logic:</span>
+            <span className="text-[#E0E0E0]">{notes}</span>
+          </div>
         </div>
 
-        <div className="text-[9px] text-[#666666] shrink-0 hidden sm:block">
-          ZERO SYNTHETIC INFERENCE &bull; REAL SENSING ONLY
+        <div className="flex items-center gap-1.5 text-[9px] text-[#666666] shrink-0 self-end sm:self-auto">
+          <Timer className="w-3 h-3 text-[#A855F7]" />
+          <span>STRICT DUAL-SENSOR TEMPORAL CORRELATION</span>
         </div>
       </div>
     </div>
