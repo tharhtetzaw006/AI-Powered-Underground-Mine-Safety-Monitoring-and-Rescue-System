@@ -47,6 +47,7 @@ import {
 import { StatusBadge } from './StatusBadge.tsx';
 import { SensorFusionPanel } from './SensorFusionPanel.tsx';
 import { RadarDetectionPanel } from './RadarDetectionPanel.tsx';
+import { API_BASE_URL, WS_URL } from '../config/api.ts';
 
 interface DetectionSummaryProps {
   id?: string;
@@ -127,9 +128,9 @@ export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
   if (isWsConnected && hasRealPrediction) currentStageIndex = 4;
 
   const lifecycleStages = [
-    { label: 'BACKEND API', desc: 'http://192.168.1.6:8000' },
+    { label: 'BACKEND API', desc: API_BASE_URL },
     { label: 'MODEL LOADED', desc: statusInfo?.model_type ?? 'RandomForest' },
-    { label: 'WEBSOCKET STREAM', desc: 'ws://...:8000/ws' },
+    { label: 'WEBSOCKET STREAM', desc: WS_URL },
     { label: '192-DIM FEATURES', desc: `${statusInfo?.features_required ?? 192} RF CSI vectors` },
     { label: '30-VOTE ENSEMBLE', desc: 'Sliding window decision' },
   ];
@@ -154,7 +155,7 @@ export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
                 NODE: {activeNodeId ?? 'RESCUE MESH'}
               </span>
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#0D0D0D] text-[#38BDF8] border border-[#222222]">
-                FASTAPI: 192.168.1.6:8000
+                BACKEND: {API_BASE_URL.replace(/^https?:\/\//, '')}
               </span>
             </div>
             <p className="text-[10px] text-[#8A8A8A] mt-0.5">
@@ -241,7 +242,7 @@ export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
             </span>
           </div>
           <span className="text-[10px] text-[#8A8A8A]">
-            FASTAPI: http://192.168.1.6:8000
+            BACKEND: {API_BASE_URL}
           </span>
         </div>
 
@@ -667,7 +668,7 @@ export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
               NO REAL FASTAPI DETECTION EVENTS RECORDED
             </div>
             <p className="text-[10px] text-[#555555] mt-0.5 max-w-md mx-auto">
-              Awaiting live inference packets from ws://192.168.1.6:8000/ws or REST prediction sync. Mock, simulated, or default predictions are never generated.
+              Awaiting live inference packets from {WS_URL} or REST prediction sync. Mock, simulated, or default predictions are never generated.
             </p>
           </div>
         ) : (
