@@ -554,6 +554,15 @@ async function startServer() {
     sourceType: string | null;
     streamUrl: string | null;
     error: string | null;
+    reIdModelStatus: string;
+    reIdModelName: string | null;
+    embeddingDimension: number | null;
+    activeGlobalPeople: number;
+    totalGlobalPeople: number;
+    identityMatches: number;
+    identityCreations: number;
+    identityReassociations: number;
+    reIdErrors: number;
   }
   const cameraRegistry = new Map<string, ServerCameraTelemetry>();
   let latestCameraTelemetry: ServerCameraTelemetry | null = null;
@@ -1571,6 +1580,15 @@ async function startServer() {
       confidence: camera.modelConfidence,
       motionState: camera.motionState,
       quality: camera.detectionQuality,
+      reIdModelStatus: camera.reIdModelStatus || 'UNLOADED',
+      reIdModelName: camera.reIdModelName || null,
+      embeddingDimension: camera.embeddingDimension || null,
+      activeGlobalPeople: camera.activeGlobalPeople || 0,
+      totalGlobalPeople: camera.totalGlobalPeople || camera.totalRegisteredInSession || 0,
+      identityMatches: camera.identityMatches || 0,
+      identityCreations: camera.identityCreations || 0,
+      identityReassociations: camera.identityReassociations || 0,
+      reIdErrors: camera.reIdErrors || 0,
     });
   });
 
@@ -1725,6 +1743,15 @@ async function startServer() {
       sourceType: body.sourceType || 'ESP32_CAM',
       streamUrl: body.streamUrl || null,
       error,
+      reIdModelStatus: typeof body.reIdModelStatus === 'string' ? body.reIdModelStatus : 'UNLOADED',
+      reIdModelName: typeof body.reIdModelName === 'string' ? body.reIdModelName : null,
+      embeddingDimension: typeof body.embeddingDimension === 'number' ? body.embeddingDimension : null,
+      activeGlobalPeople: typeof body.activeGlobalPeople === 'number' ? body.activeGlobalPeople : 0,
+      totalGlobalPeople: typeof body.totalGlobalPeople === 'number' ? body.totalGlobalPeople : totalRegisteredInSession,
+      identityMatches: typeof body.identityMatches === 'number' ? body.identityMatches : 0,
+      identityCreations: typeof body.identityCreations === 'number' ? body.identityCreations : 0,
+      identityReassociations: typeof body.identityReassociations === 'number' ? body.identityReassociations : 0,
+      reIdErrors: typeof body.reIdErrors === 'number' ? body.reIdErrors : 0,
     };
 
     cameraRegistry.set(cameraId, telemetry);

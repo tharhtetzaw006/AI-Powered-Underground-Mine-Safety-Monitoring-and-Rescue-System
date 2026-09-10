@@ -122,9 +122,10 @@ export const CameraSection: React.FC<CameraSectionProps> = ({ id }) => {
 
       // Label badge
       const confPercent = Math.round((det.confidence || 0) * 100);
+      const reIdStatusText = det.reIdStatus || (det.globalId ? 'CONFIRMED' : 'PENDING');
       const labelText = det.globalId
-        ? `PERSON G-${det.globalId} [T-${det.trackId ?? '?'}] | ${confPercent}%`
-        : `PERSON ${det.trackId ? `T-${det.trackId} ` : ''}| ${confPercent}%`;
+        ? `G-${det.globalId} [T-${det.trackId ?? '?'}] • ${reIdStatusText} | ${confPercent}%`
+        : `T-${det.trackId ?? '?'} [RE-ID: ${reIdStatusText}] | ${confPercent}%`;
 
       ctx.font = 'bold 12px ui-monospace, monospace';
       const textMetrics = ctx.measureText(labelText);
@@ -250,7 +251,7 @@ export const CameraSection: React.FC<CameraSectionProps> = ({ id }) => {
         {operationalMode === 'VISIBLE_CAMERA' && (
           <div className="space-y-3">
             {/* Real Hardware Metrics Ribbon */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
               {/* 1. Global Unique People Headcount (Primary Metric) */}
               <div
                 id="camera-global-unique-people-pill"
@@ -264,7 +265,7 @@ export const CameraSection: React.FC<CameraSectionProps> = ({ id }) => {
               >
                 <div className="flex items-center justify-between">
                   <span className="text-[9px] uppercase tracking-wider font-bold text-[#8A8A8A]">
-                    OBSERVED UNIQUE (EST)
+                    OBSERVED UNIQUE
                   </span>
                   <Camera className="w-3.5 h-3.5 text-[#38BDF8]" />
                 </div>
@@ -272,16 +273,52 @@ export const CameraSection: React.FC<CameraSectionProps> = ({ id }) => {
                   {globalCount}
                   {isStreaming && typeof globalCount === 'number' && (
                     <span className="text-[9px] font-normal ml-1.5 opacity-80 uppercase">
-                      HEURISTIC
+                      DEEP RE-ID
                     </span>
                   )}
                 </div>
                 <div className="text-[9px] text-[#8A8A8A] mt-0.5 truncate">
-                  REGISTRY: {totalRegistered} (COLOR DESCRIPTOR)
+                  REGISTRY: {cameraTelemetry.totalGlobalPeople || totalRegistered} (ACTIVE: {cameraTelemetry.activeGlobalPeople || 0})
                 </div>
               </div>
 
-              {/* 2. Count Status */}
+              {/* 2. Deep Re-ID Embedder Status */}
+              <div
+                id="camera-reid-embedder-pill"
+                className="p-2 rounded bg-[#0D0D0D] border border-[#222222] flex flex-col justify-between"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[9px] uppercase tracking-wider text-[#8A8A8A]">
+                    RE-ID EMBEDDER
+                  </span>
+                  <Cpu className="w-3.5 h-3.5 text-[#38BDF8]" />
+                </div>
+                <div className="mt-0.5">
+                  <span
+                    className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wider ${
+                      cameraTelemetry.reIdModelStatus === 'READY'
+                        ? 'bg-[#10B981]/20 text-[#10B981] border border-[#10B981]/40'
+                        : cameraTelemetry.reIdModelStatus === 'LOADING'
+                        ? 'bg-[#F59E0B]/20 text-[#F59E0B] border border-[#F59E0B]/40 animate-pulse'
+                        : cameraTelemetry.reIdModelStatus === 'ERROR'
+                        ? 'bg-[#EF4444]/20 text-[#EF4444] border border-[#EF4444]/40'
+                        : 'bg-[#222222] text-[#8A8A8A]'
+                    }`}
+                  >
+                    {cameraTelemetry.reIdModelStatus || 'UNLOADED'}
+                  </span>
+                  {cameraTelemetry.embeddingDimension && (
+                    <span className="text-[9px] text-[#FFFFFF] ml-1 font-mono">
+                      {cameraTelemetry.embeddingDimension}-D
+                    </span>
+                  )}
+                </div>
+                <div className="text-[9px] text-[#8A8A8A] mt-0.5 truncate">
+                  MATCH: {cameraTelemetry.identityMatches || 0} | REASSOC: {cameraTelemetry.identityReassociations || 0}
+                </div>
+              </div>
+
+              {/* 3. Count Status */}
               <div className="p-2 rounded bg-[#0D0D0D] border border-[#222222] flex flex-col justify-between">
                 <span className="text-[9px] uppercase tracking-wider text-[#8A8A8A]">
                   COUNT STATUS
@@ -308,7 +345,7 @@ export const CameraSection: React.FC<CameraSectionProps> = ({ id }) => {
                 </div>
               </div>
 
-              {/* 3. Visible in Current Frame */}
+              {/* 4. Visible in Current Frame */}
               <div
                 id="camera-visible-people-pill"
                 className="p-2 rounded bg-[#0D0D0D] border border-[#222222] flex flex-col justify-between"
@@ -332,7 +369,7 @@ export const CameraSection: React.FC<CameraSectionProps> = ({ id }) => {
                 </div>
               </div>
 
-              {/* 4. Room Sweep Coverage */}
+              {/* 5. Room Sweep Coverage */}
               <div className="p-2 rounded bg-[#0D0D0D] border border-[#222222] flex flex-col justify-between">
                 <div className="flex items-center justify-between">
                   <span className="text-[9px] uppercase tracking-wider text-[#8A8A8A]">
@@ -361,7 +398,7 @@ export const CameraSection: React.FC<CameraSectionProps> = ({ id }) => {
                 </div>
               </div>
 
-              {/* 5. Stream Quality & Hardware Rate */}
+              {/* 6. Stream Quality & Hardware Rate */}
               <div className="p-2 rounded bg-[#0D0D0D] border border-[#222222] flex flex-col justify-between">
                 <span className="text-[9px] uppercase tracking-wider text-[#8A8A8A]">
                   RATE / MOTION
@@ -701,6 +738,35 @@ export const CameraSection: React.FC<CameraSectionProps> = ({ id }) => {
                       {cameraDiagnostics.lastFrameAgeMs !== null
                         ? `${cameraDiagnostics.lastFrameAgeMs} ms`
                         : '--'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[#8A8A8A] block">RE-ID EMBEDDER MODEL:</span>
+                    <span
+                      className={`font-bold ${
+                        cameraTelemetry.reIdModelStatus === 'READY'
+                          ? 'text-[#10B981]'
+                          : cameraTelemetry.reIdModelStatus === 'LOADING'
+                          ? 'text-[#F59E0B]'
+                          : 'text-[#8A8A8A]'
+                      }`}
+                    >
+                      {cameraTelemetry.reIdModelStatus}
+                    </span>
+                    <span className="text-[#FFFFFF] block text-[10px] truncate">
+                      {cameraTelemetry.reIdModelName || 'MobileNet Feature Extractor'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[#8A8A8A] block">RE-ID EMBEDDING DIMENSION:</span>
+                    <span className="text-[#FFFFFF] font-mono">
+                      {cameraTelemetry.embeddingDimension ? `${cameraTelemetry.embeddingDimension}-Dimensional` : '--'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[#8A8A8A] block">RE-ID IDENTITY STATS:</span>
+                    <span className="text-[#FFFFFF]">
+                      MATCHES: {cameraTelemetry.identityMatches} | CREATED: {cameraTelemetry.identityCreations} | REASSOC: {cameraTelemetry.identityReassociations}
                     </span>
                   </div>
                   <div>

@@ -38,6 +38,8 @@ export type CountingSessionState =
 
 export type CoverageStatus = 'INSUFFICIENT' | 'PARTIAL' | 'SUFFICIENT' | 'UNKNOWN';
 
+export type ReIdModelStatus = 'UNLOADED' | 'LOADING' | 'READY' | 'ERROR' | 'UNAVAILABLE';
+
 export interface CameraBoundingBox {
   x: number;
   y: number;
@@ -49,6 +51,7 @@ export interface CameraPersonDetection {
   id: string;
   trackId: number | null;
   globalId?: number | null; // Associated session-unique person ID (G-1, G-2, ...)
+  reIdStatus?: 'CONFIRMED' | 'PENDING' | 'NEW' | 'REASSOCIATED' | 'UNAVAILABLE';
   class: 'person';
   bbox: [number, number, number, number]; // [x, y, width, height] in source pixels
   normalizedBbox?: [number, number, number, number]; // [x, y, width, height] in 0..1 relative coords
@@ -58,14 +61,18 @@ export interface CameraPersonDetection {
 
 export interface RegisteredUniquePerson {
   globalId: number;
+  identityEmbedding: number[]; // Deep feature embedding prototype vector
+  embeddingHistory: number[][]; // Temporal recent embedding samples
+  associatedTrackIds: number[];
   firstSeenTime: number;
   lastSeenTime: number;
   totalObservations: number;
   bestConfidence: number;
-  appearanceDescriptor: number[]; // Normalized multi-zone color histogram
   aspectRatio: number;
   lastBbox: [number, number, number, number];
   estimatedPanAngle: number; // Cumulative estimated pan angle when observed
+  identityConfidence: number;
+  isActive: boolean;
 }
 
 export interface CameraTelemetry {
@@ -90,6 +97,16 @@ export interface CameraTelemetry {
   sourceType: CameraInputSourceType | null;
   streamUrl: string | null;
   error: string | null;
+  // Deep Re-ID Subsystem Telemetry
+  reIdModelStatus: ReIdModelStatus;
+  reIdModelName: string | null;
+  embeddingDimension: number | null;
+  activeGlobalPeople: number;
+  totalGlobalPeople: number;
+  identityMatches: number;
+  identityCreations: number;
+  identityReassociations: number;
+  reIdErrors: number;
 }
 
 export interface CameraDiagnostics {
