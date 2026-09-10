@@ -158,19 +158,6 @@ export const RadarDetectionPanel: React.FC<RadarDetectionPanelProps> = ({
         </div>
       </div>
 
-      {/* Physics Limitation Notice */}
-      <div className="p-2.5 rounded bg-[#0A0700] border border-[#332600] text-[#EAB308] space-y-1">
-        <div className="flex items-start gap-2">
-          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#EAB308]" />
-          <div className="text-[10px] leading-relaxed">
-            <span className="font-bold text-[#FDE047]">Physics &amp; Hardware Integrity:</span>{' '}
-            Radar human/life detection performance depends on radar frequency, antenna
-            configuration, propagation through debris, target geometry, signal processing, and a
-            validated detection model. Values are displayed strictly from verified hardware packets.
-          </div>
-        </div>
-      </div>
-
       {/* Vital Signs Limitation Notice */}
       <div className="p-2 rounded bg-[#080808] border border-[#1A1A1A] flex items-center justify-between text-[10px] text-[#8A8A8A]">
         <div className="flex items-center gap-1.5">
@@ -385,6 +372,19 @@ export const RadarDetectionPanel: React.FC<RadarDetectionPanelProps> = ({
 
         {showDocs && (
           <div className="p-2.5 rounded bg-[#050505] border border-[#222222] space-y-2 text-[10px]">
+            {/* Physics & Hardware Integrity Notice */}
+            <div className="p-2 rounded bg-[#0A0700] border border-[#332600] text-[#EAB308]">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#EAB308]" />
+                <div className="text-[10px] leading-relaxed">
+                  <span className="font-bold text-[#FDE047]">Physics &amp; Hardware Integrity:</span>{' '}
+                  Radar human/life detection performance depends on radar frequency, antenna
+                  configuration, propagation through debris, target geometry, signal processing, and a
+                  validated detection model. Values are displayed strictly from verified hardware packets.
+                </div>
+              </div>
+            </div>
+
             <div className="text-[#B3B3B3] font-bold">Example Hardware Ingestion Command (curl):</div>
             <pre className="p-2 rounded bg-[#0D0D0D] border border-[#2A2A2A] text-[#38BDF8] font-mono text-[9px] overflow-x-auto whitespace-pre">
 {`curl -X POST http://localhost:3000/api/radar/telemetry \\

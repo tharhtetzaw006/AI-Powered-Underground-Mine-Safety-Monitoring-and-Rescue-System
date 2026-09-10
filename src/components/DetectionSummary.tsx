@@ -66,7 +66,7 @@ export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
     reconnectFastApiWs,
   } = useLiveData();
 
-  const [showDiagnostics, setShowDiagnostics] = useState(true);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   const prediction = fastApiState.latestPrediction;
   const statusInfo = fastApiState.statusInfo;
@@ -449,26 +449,25 @@ export const DetectionSummary: React.FC<DetectionSummaryProps> = ({ id }) => {
               * Note: For cross-origin REST fetch from localhost:5173, ensure FastAPI has CORSMiddleware configured (allow_origins=[&quot;*&quot;]).
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Mandatory Technical Physics Limitation Notice */}
-      <div className="p-3 rounded bg-[#0A0800] border border-[#3A2E00] text-[#EAB308]">
-        <div className="flex items-start gap-2.5">
-          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-[#EAB308]" />
-          <div className="space-y-1">
-            <div className="text-xs font-bold uppercase tracking-wide text-[#FEF08A]">
-              Technical Physics Limitation Notice
+          {/* Technical Physics Limitation Notice */}
+          <div className="p-2.5 rounded bg-[#0A0800] border border-[#3A2E00] text-[#EAB308]">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-[#EAB308]" />
+              <div className="space-y-1">
+                <div className="text-xs font-bold uppercase tracking-wide text-[#FEF08A]">
+                  Technical Physics Limitation Notice
+                </div>
+                <p className="text-[11px] leading-relaxed text-[#FDE047]">
+                  &ldquo;Through-obstacle human detection requires valid RF/radar/depth sensing input and a trained detection model.&rdquo;
+                </p>
+                <p className="text-[10px] leading-relaxed text-[#CA8A04]">
+                  Standard field sensors (HC-SR04 ultrasonic, MPU6500 IMU, electret microphone, and LoRa RSSI) measure surface acoustic noise and node movement. They cannot reliably detect or count humans through collapsed rock or dense mine debris. The pipeline receives verified RF CSI vectors processed through a 192-feature Random Forest classifier on the remote AI backend.
+                </p>
+              </div>
             </div>
-            <p className="text-[11px] leading-relaxed text-[#FDE047]">
-              &ldquo;Through-obstacle human detection requires valid RF/radar/depth sensing input and a trained detection model.&rdquo;
-            </p>
-            <p className="text-[10px] leading-relaxed text-[#CA8A04]">
-              Standard field sensors (HC-SR04 ultrasonic, MPU6500 IMU, electret microphone, and LoRa RSSI) measure surface acoustic noise and node movement. They cannot reliably detect or count humans through collapsed rock or dense mine debris. The pipeline receives verified RF CSI vectors processed through a 192-feature Random Forest classifier on the remote AI backend.
-            </p>
           </div>
         </div>
-      </div>
+      )}
 
       {/* 7 Required Metrics Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2.5">
